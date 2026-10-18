@@ -206,7 +206,7 @@ const folds = [
     ['wall', 'Wall (mm)', 4, 40], ['base', 'Base (mm)', 4, 40], ['lipHeight', 'Lip height (mm)', 0, 60],
     ['lipWidth', 'Lip width (mm)', 0, 30], ['drainDia', 'Drain hole (mm)', 0, 40]]],
   ['Pattern', [['patternDepth', 'Depth (mm)', 0, 10], ['patternCount', 'Count around', 4, 60], ['patternPitch', 'Vertical pitch (mm)', 5, 60]]],
-  ['Mould', [['wedges', 'Outer wedges', 2, 12], ['moldWall', 'Mould wall (mm)', 2, 10], ['gap', 'Gap between parts (mm)', 0, 1, 0.05],
+  ['Mould', [['wedges', 'Outer wedges', 2, 12], ['moldWall', 'Mould wall (mm)', 2, 20], ['gap', 'Gap between parts (mm)', 0, 1, 0.05],
     ['draft', 'Core draft (°)', 0, 5, 0.5], ['bed', 'Printer bed (mm)', 100, 500]]],
   ['Clamping', []],
 ];
@@ -218,7 +218,7 @@ for (const [title, list] of folds) {
   if (title === 'Pattern') d.insertAdjacentHTML('beforeend', `<label class="row"><span class="name">Style</span>
     <select name="pattern">${Object.keys(patterns).map(k => `<option>${k}</option>`).join('')}</select></label>`);
   for (const [k, label, min, max, step = 1] of list) d.append(fillBar(k, label, min, max, step, defaults[k]));
-  if (title === 'Clamping') d.insertAdjacentHTML('beforeend', [['ribs', 'Clamp ribs on seams'], ['bolts', 'Bolt holes (M5)'], ['straps', 'Strap notches']]
+  if (title === 'Clamping') d.insertAdjacentHTML('beforeend', [['bolts', 'Bolt holes (M5)']]
     .map(([k, label]) => switchRow(k, label, defaults[k])).join(''));
   form.append(d);
 }
@@ -229,11 +229,10 @@ const params = () => ({ ...defaults, ...Object.fromEntries([...form.elements].fi
 function refreshForm() {
   const p = params(), state = {
     Pot: `${p.height} × ${p.topDia}`, Pattern: p.pattern === 'none' ? 'Off' : p.pattern,
-    Mould: `${p.wedges} wedges`, Clamping: p.ribs ? ['Ribs', p.bolts && 'bolts', p.straps && 'straps'].filter(Boolean).join(', ') : 'Off',
+    Mould: `${p.wedges} wedges`, Clamping: p.bolts ? 'Ribs, bolts' : 'Ribs',
   };
   for (const s of form.querySelectorAll('.state')) s.textContent = state[s.dataset.for];
   for (const k of ['patternDepth', 'patternCount', 'patternPitch']) form.elements[k].closest('.fill').classList.toggle('off', p.pattern === 'none');
-  for (const k of ['bolts', 'straps']) form.elements[k].closest('.switch').classList.toggle('off', !p.ribs);
 }
 form.addEventListener('input', () => { refreshForm(); schedule(); });
 form.addEventListener('change', () => { refreshForm(); schedule(); });
