@@ -4,6 +4,18 @@
 export const defaults = {
   height: 120, topDia: 140, bottomDia: 100, wall: 10, base: 12,
   lipHeight: 15, lipWidth: 5, drainDia: 15, moldWall: 4, wedges: 4, segments: 96,
+  pattern: 'none', patternDepth: 3, patternCount: 24, patternPitch: 20,
+};
+
+// Outer-face patterns: (angle, height, params) -> 0..1, scaled by patternDepth and pushed outward only,
+// so the wall never gets thinner than `wall`.
+const fract = x => x - Math.floor(x);
+export const patterns = {
+  none: () => 0,
+  ribs: (a, z, p) => (1 + Math.cos(p.patternCount * a)) / 2,
+  bands: (a, z, p) => (1 + Math.cos(2 * Math.PI * z / p.patternPitch)) / 2,
+  waves: (a, z, p) => (1 + Math.cos(p.patternCount * a + 2 * Math.sin(2 * Math.PI * z / p.patternPitch))) / 2,
+  diamonds: (a, z, p) => 1 - Math.abs(fract(p.patternCount * a / (2 * Math.PI)) - 0.5) - Math.abs(fract(z / p.patternPitch) - 0.5),
 };
 
 export function build(wasm, p) {
@@ -18,13 +30,30 @@ export function build(wasm, p) {
   // radius of the pot's outer wall at height z (below the lip)
   const rAt = z => rb + (rt - rb) * z / H;
 
-  const outer = rev([[0, 0], [rb, 0], [rAt(lipZ), lipZ], [rLip, lipZ], [rLip, H], [0, H]]);
+  const fn = patterns[p.pattern];
+  if (!fn) throw new Error(`Unknown pattern ${p.pattern}`);
+  let outer;
+  if (p.pattern === 'none' || !p.patternDepth) {
+    outer = rev([[0, 0], [rb, 0], [rAt(lipZ), lipZ], [rLip, lipZ], [rLip, H], [0, H]]);
+  } else {
+    // dense side profile + enough segments to resolve the pattern, then push side vertices outward
+    const dz = Math.min(1, p.patternPitch / 12), side = [];
+    for (let z = 0; z < lipZ; z += dz) side.push([rAt(z), z]);
+    const segs = Math.min(720, Math.max(p.segments, p.patternCount * 12));
+    const fade = Math.min(4, lipZ / 4), ramp = t => Math.min(1, Math.max(0, t / fade));
+    outer = new CrossSection([[[0, 0], ...side, [rAt(lipZ), lipZ], [rLip, lipZ], [rLip, H], [0, H]]]).revolve(segs).warp(v => {
+      const r = Math.hypot(v[0], v[1]), z = v[2];
+      if (z >= lipZ || Math.abs(r - rAt(z)) > 1e-3) return; // only the body's outer face
+      const d = p.patternDepth * fn(Math.atan2(v[1], v[0]), z, p) * ramp(z) * ramp(lipZ - z);
+      v[0] *= (r + d) / r; v[1] *= (r + d) / r;
+    });
+  }
   // cavity: wall measured horizontally, so it follows the outer taper
   const cavity = rev([[0, p.base], [rAt(p.base) - p.wall, p.base], [rt - p.wall, H], [0, H]]);
   const drain = Manifold.cylinder(p.base + 2, p.drainDia / 2, p.drainDia / 2, p.segments).translate([0, 0, -1]);
   const pot = outer.subtract(cavity).subtract(drain);
 
-  const rMax = Math.max(rLip, rt, rb) + p.moldWall;
+  const rMax = Math.max(rLip, rt + (p.pattern === 'none' ? 0 : p.patternDepth), rb) + p.moldWall;
   // core = cavity + drain pin + cap that covers the rim and seats the outer mold
   const vents = Array.from({ length: 6 }, (_, i) => {
     const a = i / 6 * 2 * Math.PI, r = rt - p.wall / 2;
