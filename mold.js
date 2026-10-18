@@ -1,5 +1,6 @@
 // Pure geometry: params (mm) -> Manifold solids. Pot axis is +Z, base at z=0.
-// Casting is done upright: wedges stand on the base plate and are clamped shut, the core hangs from its cap
+// Casting is done upright: wedges are screwed down to a board through their bottom flange and clamped shut, the
+// board forms the pot's underside, the core hangs from its cap
 // which sits on the wedges, and concrete is poured through the gaps in the cap above the pot's rim.
 export const defaults = {
   height: 120, topDia: 140, bottomDia: 100, wall: 10, base: 12,
@@ -77,8 +78,6 @@ export function build(wasm, p) {
     .subtract(Manifold.union([0, 90].map(d => Manifold.cube([2 * rMax + 2, spoke, p.moldWall + 6], true).translate([0, 0, H]).rotate([0, 0, d + 45]))));
   const core = cavityTo(H + 0.01).add(Manifold.cylinder(p.base, p.drainDia / 2, p.drainDia / 2, p.segments))
     .add(disk(rMax, p.moldWall, H).subtract(gaps));
-  // base plate closes the bottom of the outer mold; the core's drain pin rests on it
-  const base = disk(rMax, p.moldWall, -p.moldWall);
 
   // Seam-local frame: x = out from the shell's outer surface, y = across the seam (positive = into the wedge
   // after the seam), z = up. `follow` extrudes a 2D (x, y) section up the whole wedge and bends it to the shell
@@ -117,7 +116,13 @@ export function build(wasm, p) {
     Manifold.cylinder(y1 - y0, 2.75, 2.75, 24).rotate([-90, 0, 0]).translate([rOut(z) + boltX, y0, z])));
   const bolts = bolt(-g - ribT - 1, g + ribT + 1);
 
-  const shell = new CrossSection([[[0, 0], ...prof, [0, H]]]).revolve(p.segments).subtract(outer);
+  // screw flange round the bottom: the wedges screw down to a board (ply, melamine), which closes the bottom.
+  // 45° chamfer where it meets the wall so it prints upright without supports.
+  // ponytail: fixed for ~4 mm wood screws; make it a setting if people use other screws
+  const fT = 5, fW = 18, fCh = 3, screwR = 2.25, rF = bodyO(0) + fW;
+  const flange = rev([[bodyO(0) - 1, 0], [rF, 0], [rF, fT], [bodyO(fT) + fCh, fT], [bodyO(fT + fCh), fT + fCh], [bodyO(fT + fCh) - 1, fT + fCh]]);
+  const shell = new CrossSection([[[0, 0], ...prof, [0, H]]]).revolve(p.segments).add(flange).subtract(outer);
+  const rScrew = bodyO(0) + fCh + 7, screws = Math.ceil(rScrew * 2 * Math.PI / p.wedges / 80); // per wedge, ≤ 80 mm apart
   const n = p.wedges, R = (rMax + ribD) * 2, wedges = [];
   for (let i = 0; i < n; i++) {
     const a0 = (i / n) * 2 * Math.PI, a1 = ((i + 1) / n) * 2 * Math.PI, half = (a1 - a0) / 2;
@@ -131,6 +136,11 @@ export function build(wasm, p) {
     // rib + tongue on the seam at a0, rib + groove on the seam at a1 (the next wedge's tongue lands in it)
     w = w.add(atSeam(ribA.add(tongueM), a0)).add(atSeam(ribB, a1)).subtract(atSeam(grooveM, a1));
     if (p.bolts) w = w.subtract(atSeam(bolts, a0)).subtract(atSeam(bolts, a1));
+    // screw holes spread evenly along the flange, clear of the seam ribs
+    for (let j = 0; j < screws; j++) {
+      const a = a0 + (a1 - a0) * (j + 0.5) / screws;
+      w = w.subtract(Manifold.cylinder(fT + 2, screwR, screwR, 24).translate([rScrew * Math.cos(a), rScrew * Math.sin(a), -1]));
+    }
     wedges.push(w.subtract(outer));
   }
 
@@ -139,8 +149,8 @@ export function build(wasm, p) {
     const { min, max } = m.boundingBox(), w = Math.ceil(max[0] - min[0]), d = Math.ceil(max[1] - min[1]);
     if (Math.max(w, d) > p.bed) warnings.push(`${name} is ${w} × ${d} mm, bigger than your ${p.bed} mm bed`);
   };
-  fits('Core', core); fits('Base plate', base);
+  fits('Core', core);
   fits('Each wedge', wedges[0].rotate([0, 0, -180 / n]));
-  if (warnings.length) warnings.push('Try more wedges. Splitting the core and base plate comes later.');
-  return { pot, core, base, wedges, rMax, warnings };
+  if (warnings.length) warnings.push('Try more wedges. Splitting the core comes later.');
+  return { pot, core, wedges, screws, rMax, warnings };
 }
