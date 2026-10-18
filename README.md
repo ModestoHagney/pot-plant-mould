@@ -12,4 +12,4 @@ Serve the folder and open it, e.g. `python3 -m http.server`, then visit http://l
 
 ## Casting
 
-Cast upright: stand the wedges on the base plate and clamp the seam ribs (or bolt them, or strap them). Then drop the core in so its cap sits on the wedges, and pour through the gaps in the cap above the rim.
+Cast upright: stand the wedges on the base plate, slot the tongues into the grooves and clamp (or bolt) the seam ribs. Then drop the core in so its cap sits on the wedges, and pour through the gaps in the cap above the rim.

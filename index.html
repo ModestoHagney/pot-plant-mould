@@ -60,7 +60,7 @@ const fields = [
     ['wall', 'Wall thickness', 4, 40], ['base', 'Base thickness', 4, 40], ['lipHeight', 'Lip height', 0, 60],
     ['lipWidth', 'Lip width', 0, 30], ['drainDia', 'Drain hole', 0, 40]]],
   ['Pattern', [['patternDepth', 'Depth', 0, 10], ['patternCount', 'Count around', 4, 60, ''], ['patternPitch', 'Vertical pitch', 5, 60]]],
-  ['Mould', [['wedges', 'Outer wedges', 2, 12, ''], ['moldWall', 'Mould wall', 2, 10], ['gap', 'Gap between parts', 0, 1, 'mm', 0.05],
+  ['Mould', [['wedges', 'Outer wedges', 2, 12, ''], ['moldWall', 'Mould wall', 2, 20], ['gap', 'Gap between parts', 0, 1, 'mm', 0.05],
     ['draft', 'Core draft', 0, 5, '°', 0.5], ['bed', 'Printer bed size', 100, 500]]],
 ];
 const form = document.getElementById('f');
@@ -71,7 +71,7 @@ for (const [title, list] of fields) {
     form.insertAdjacentHTML('beforeend', `<label>${label}${unit && ` (${unit})`}<input type="number" name="${k}" min="${min}" max="${max}" step="${step}" value="${defaults[k]}">
       <input type="range" data-k="${k}" min="${min}" max="${max}" step="${step}" value="${defaults[k]}"></label>`);
 }
-form.insertAdjacentHTML('beforeend', `<h2>Clamping</h2>` + [['ribs', 'Clamp ribs on seams'], ['bolts', 'Bolt holes (M5)'], ['straps', 'Strap notches']]
+form.insertAdjacentHTML('beforeend', `<h2>Clamping</h2>` + [['bolts', 'Bolt holes (M5)']]
   .map(([k, label]) => `<label><span>${label}</span><input type="checkbox" name="${k}"${defaults[k] ? ' checked' : ''}></label>`).join(''));
 form.addEventListener('input', e => {
   const k = e.target.name || e.target.dataset.k;
