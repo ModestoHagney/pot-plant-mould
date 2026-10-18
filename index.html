@@ -239,6 +239,11 @@ function refreshForm() {
   form.elements.seed.closest('.fill').classList.toggle('off', p.pattern !== 'lowpoly');
   document.getElementById('reroll').disabled = p.pattern !== 'lowpoly';
 }
+// a pattern runs right up to the rim, so picking one turns the lip off (it can be turned back up)
+form.elements.pattern.addEventListener('change', e => {
+  if (e.target.value === 'none') return;
+  for (const k of ['lipHeight', 'lipWidth']) { form.elements[k].value = 0; form.elements[k].dispatchEvent(new Event('input', { bubbles: true })); }
+});
 document.getElementById('reroll').onclick = () => {
   const s = form.elements.seed; s.value = 1 + Math.floor(Math.random() * 999); s.dispatchEvent(new Event('input', { bubbles: true }));
 };
