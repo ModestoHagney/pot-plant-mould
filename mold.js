@@ -1,5 +1,6 @@
 // Pure geometry: params (mm) -> Manifold solids. Pot axis is +Z, base at z=0.
-// Casting is done upside down: core cap on the table, wedges on top, pour into the open pot base.
+// Casting is done upright: wedges stand on the base plate, pour the concrete in, then push the core down
+// until its cap sits on the wedges. Vent holes in the cap let excess concrete and air escape.
 export const defaults = {
   height: 120, topDia: 140, bottomDia: 100, wall: 10, base: 12,
   lipHeight: 15, lipWidth: 5, drainDia: 15, moldWall: 4, wedges: 4, segments: 96,
@@ -25,10 +26,16 @@ export function build(wasm, p) {
 
   const rMax = Math.max(rLip, rt, rb) + p.moldWall;
   // core = cavity + drain pin + cap that covers the rim and seats the outer mold
-  const cap = Manifold.cylinder(p.moldWall, rMax, rMax, p.segments).translate([0, 0, H]);
+  const vents = Array.from({ length: 6 }, (_, i) => {
+    const a = i / 6 * 2 * Math.PI, r = rt - p.wall / 2;
+    return Manifold.cylinder(p.moldWall + 2, p.wall / 4, p.wall / 4, 24).translate([r * Math.cos(a), r * Math.sin(a), H - 1]);
+  });
+  const cap = Manifold.cylinder(p.moldWall, rMax, rMax, p.segments).translate([0, 0, H]).subtract(Manifold.union(vents));
   const pin = Manifold.cylinder(p.base, p.drainDia / 2, p.drainDia / 2, p.segments);
   const cavityToTop = rev([[0, p.base], [rAt(p.base) - p.wall, p.base], [rt - p.wall, H + 0.01], [0, H + 0.01]]);
   const core = cavityToTop.add(pin).add(cap);
+  // base plate closes the bottom of the outer mold; the core's drain pin rests on it
+  const base = Manifold.cylinder(p.moldWall, rMax, rMax, p.segments).translate([0, 0, -p.moldWall]);
 
   // outer shell: tube hugging the pot outside, open at the pot base (pour side)
   const shell = Manifold.cylinder(H, rMax, rMax, p.segments).subtract(outer);
@@ -39,5 +46,5 @@ export function build(wasm, p) {
     const sector = new CrossSection([pts]).extrude(H + 2).translate([0, 0, -1]);
     wedges.push(shell.intersect(sector));
   }
-  return { pot, core, wedges, rMax };
+  return { pot, core, base, wedges, rMax };
 }

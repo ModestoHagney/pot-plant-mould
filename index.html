@@ -36,9 +36,15 @@
   <form id="f"></form>
   <h2>View</h2>
   <label>Explode<input type="range" id="explode" min="0" max="80" value="30"></label>
-  <label><span>Show pot</span><input type="checkbox" id="showPot" checked></label>
+  <h2>Parts</h2>
+  <div id="parts">
+    <label><span>Pot</span><input type="checkbox" value="pot" checked></label>
+    <label><span>Core</span><input type="checkbox" value="core"></label>
+    <label><span>Base plate</span><input type="checkbox" value="base"></label>
+    <label><span>Outer wedges</span><input type="checkbox" value="wedges"></label>
+  </div>
   <p id="err"></p>
-  <button id="export">Export mold (3MF)</button>
+  <button id="export">Export shown mould parts (3MF)</button>
 </aside>
 <main id="view"></main>
 <script type="module">
@@ -101,8 +107,8 @@ const mat = c => new THREE.MeshStandardMaterial({ color: c, roughness: 0.7, flat
 
 function layout() {
   const d = +document.getElementById('explode').value;
-  for (const o of group.children) o.position.copy(o.userData.dir).multiplyScalar(d);
-  group.children[0].visible = document.getElementById('showPot').checked;
+  const on = shown();
+  for (const o of group.children) { o.position.copy(o.userData.dir).multiplyScalar(d); o.visible = on.has(o.userData.part); }
 }
 function regen() {
   const err = document.getElementById('err');
@@ -113,15 +119,17 @@ function regen() {
   } catch (e) { err.textContent = e.message; return; }
   group.clear();
   const { pot, core, wedges } = parts, n = wedges.length;
-  const add = (m, color, dir) => { const o = new THREE.Mesh(toGeom(m), mat(color)); o.userData.dir = dir; group.add(o); };
-  add(pot, 0x9a9a95, new THREE.Vector3());
-  add(core, 0xd9a35f, new THREE.Vector3(0, 0, 1.5));
-  wedges.forEach((w, i) => { const a = (i + 0.5) / n * 2 * Math.PI; add(w, i % 2 ? 0x4f86c6 : 0x6aa0d8, new THREE.Vector3(Math.cos(a), Math.sin(a), 0)); });
+  const add = (part, m, color, dir) => { const o = new THREE.Mesh(toGeom(m), mat(color)); o.userData = { part, dir }; group.add(o); };
+  add('pot', pot, 0x9a9a95, new THREE.Vector3());
+  add('core', core, 0xd9a35f, new THREE.Vector3(0, 0, 1.5));
+  add('base', parts.base, 0x8a6fb3, new THREE.Vector3(0, 0, -1));
+  wedges.forEach((w, i) => { const a = (i + 0.5) / n * 2 * Math.PI; add('wedges', w, i % 2 ? 0x4f86c6 : 0x6aa0d8, new THREE.Vector3(Math.cos(a), Math.sin(a), 0)); });
   layout();
 }
 function schedule() { clearTimeout(timer); timer = setTimeout(regen, 120); }
 document.getElementById('explode').oninput = layout;
-document.getElementById('showPot').onchange = layout;
+const shown = () => new Set([...document.querySelectorAll('#parts input:checked')].map(c => c.value));
+document.getElementById('parts').onchange = layout;
 regen();
 
 // 3MF: one object per mold part, laid out side by side so they don't overlap on load
@@ -143,7 +151,10 @@ function to3mf(named, spacing) {
 }
 document.getElementById('export').onclick = () => {
   if (!parts) return;
-  const named = [['core', parts.core], ...parts.wedges.map((w, i) => [`wedge ${i + 1}`, w])];
+  const on = shown();
+  const named = [['core', parts.core], ['base plate', parts.base], ...parts.wedges.map((w, i) => [`wedge ${i + 1}`, w])]
+    .filter(([name]) => on.has(name.startsWith('wedge') ? 'wedges' : name.split(' ')[0]));
+  if (!named.length) { document.getElementById('err').textContent = 'Turn on at least one mould part to export'; return; }
   const blob = new Blob([to3mf(named, parts.rMax * 2 + 10)], { type: 'model/3mf' });
   const a = Object.assign(document.createElement('a'), { href: URL.createObjectURL(blob), download: 'pot-mold.3mf' });
   a.click(); URL.revokeObjectURL(a.href);
