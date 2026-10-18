@@ -3,23 +3,110 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Concrete Pot Mold</title>
+<title>Concrete Pot Mould</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
 <style>
-  :root { color-scheme: light dark; --bg: #f4f2ee; --panel: #fff; --text: #222; --muted: #777; --accent: #b5652e; }
-  @media (prefers-color-scheme: dark) { :root { --bg: #1b1b1b; --panel: #262626; --text: #eee; --muted: #999; } }
+  /* Built to docs/ui-style-guide.md: full-screen stage, one top bar, cards docked top right. */
+  :root {
+    --bar: #ffffff; --panel: #ffffff; --stage: #e4e7ec; --line: #d5d9e0;
+    --fg: #1c2128; --muted: #5d6673; --hover: #eef1f5;
+    --accent: #1f5fe0; --accent-fg: #ffffff; --accent-soft: #e3ecff;
+    --bad: #c0362c; --warn: #d98a00; --shade: rgba(20, 30, 50, .2);
+    --ui: "IBM Plex Sans", "Segoe UI", system-ui, sans-serif;
+    --mono: "IBM Plex Mono", ui-monospace, Consolas, monospace;
+    color-scheme: light;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bar: #24272d; --panel: #2b2f36; --stage: #3b4049; --line: #454a54;
+      --fg: #eef0f3; --muted: #a9b1bd; --hover: #373c45;
+      --accent: #7aa5ff; --accent-fg: #0d1830; --accent-soft: #2e3d60;
+      --bad: #ff8a7d; --shade: rgba(0, 0, 0, .45);
+      color-scheme: dark;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bar: #24272d; --panel: #2b2f36; --stage: #3b4049; --line: #454a54;
+    --fg: #eef0f3; --muted: #a9b1bd; --hover: #373c45;
+    --accent: #7aa5ff; --accent-fg: #0d1830; --accent-soft: #2e3d60;
+    --bad: #ff8a7d; --shade: rgba(0, 0, 0, .45);
+    color-scheme: dark;
+  }
   * { box-sizing: border-box; }
-  body { margin: 0; font: 14px system-ui, sans-serif; background: var(--bg); color: var(--text); display: flex; height: 100dvh; }
-  aside { width: 280px; padding: 16px; background: var(--panel); overflow-y: auto; }
-  h1 { font-size: 18px; margin: 0 0 12px; }
-  h2 { font-size: 12px; text-transform: uppercase; color: var(--muted); margin: 16px 0 6px; }
-  label { display: grid; grid-template-columns: 1fr 64px; gap: 4px 8px; align-items: center; margin: 6px 0; }
-  label input[type=range] { grid-column: 1 / -1; }
-  input[type=number] { width: 64px; }
-  button { width: 100%; padding: 10px; margin-top: 16px; border: 0; border-radius: 6px; background: var(--accent); color: #fff; font-weight: 600; cursor: pointer; }
-  #err { color: #d33; min-height: 1em; }
-  main { flex: 1; position: relative; }
-  canvas { display: block; }
-  @media (max-width: 700px) { body { flex-direction: column-reverse; } aside { width: auto; height: 45dvh; } }
+  html, body { height: 100%; }
+  body { margin: 0; font: 13px/1.35 var(--ui); background: var(--stage); color: var(--fg);
+    display: grid; grid-template: "bar" auto "stage" 1fr / 1fr; }
+  button, input, select { font: inherit; color: inherit; }
+
+  /* top bar */
+  #bar { grid-area: bar; display: flex; align-items: center; gap: 4px 14px; padding: 6px 14px;
+    background: var(--bar); border-bottom: 1px solid var(--line); }
+  #bar h1 { font-size: 13px; font-weight: 600; margin: 0; flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .icon { width: 30px; height: 30px; display: grid; place-items: center; border: 0; border-radius: 6px; background: none; color: var(--muted); cursor: pointer; }
+  .icon:hover { background: var(--hover); color: var(--fg); }
+  .icon svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
+  .btn { padding: 5px 12px; border: 1px solid var(--line); border-radius: 6px; background: var(--bar); cursor: pointer; }
+  .btn:hover { background: var(--hover); }
+  .btn.main { background: var(--accent); border-color: var(--accent); color: var(--accent-fg); font-weight: 500; }
+  .btn.main:hover { filter: brightness(1.08); }
+  .btn:disabled { opacity: .4; pointer-events: none; }
+  button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+
+  /* stage + dock */
+  #stage { grid-area: stage; position: relative; min-height: 0; overflow: hidden; }
+  #stage canvas { display: block; }
+  #dock { position: absolute; top: 12px; right: 12px; width: 268px; max-height: calc(100% - 24px);
+    display: flex; flex-direction: column; gap: 10px; }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; box-shadow: 0 4px 14px var(--shade);
+    overflow: hidden; display: flex; flex-direction: column; min-height: 0; flex: 0 0 auto; }
+  .card:first-child { flex: 0 1 auto; }
+  .card > header { padding: 6px 6px 6px 12px; min-height: 36px; display: flex; align-items: center; }
+  .card > .body { padding: 4px 8px 10px; overflow-y: auto; min-height: 0; }
+  .title, summary { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .07em; }
+  .title { color: var(--muted); }
+
+  /* folds */
+  details { margin-top: 12px; }
+  details:first-of-type { margin-top: 8px; }
+  summary { list-style: none; display: flex; gap: 6px; align-items: center; padding: 7px 10px; margin: 0 6px 4px;
+    border-radius: 6px; background: var(--line); color: var(--fg); cursor: pointer; }
+  summary::-webkit-details-marker { display: none; }
+  summary::after { content: "▸"; color: var(--muted); order: 1; }
+  details[open] summary::after { content: "▾"; }
+  summary .state { order: 2; margin-left: auto; text-transform: none; letter-spacing: 0; font-weight: 400; color: var(--muted); }
+  details[open] summary .state { display: none; }
+
+  /* one control shape: 30px box, name left, value right */
+  .fill, .row, .switch { position: relative; display: flex; align-items: center; gap: 8px; height: 30px; margin: 4px 6px;
+    border: 1px solid var(--line); border-radius: 6px; background: var(--bar); }
+  .fill:hover, .row:hover, .switch:hover { border-color: var(--muted); }
+  .name { color: var(--muted); flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .fill { padding: 0 4px 0 10px; cursor: ew-resize; user-select: none; touch-action: none;
+    background: linear-gradient(90deg, color-mix(in srgb, var(--accent) 28%, transparent) var(--p, 0%), transparent var(--p, 0%)), var(--bar); }
+  .fill .val, .fill input[type=text] { width: 46px; text-align: right; font: 12px var(--mono); }
+  .fill input[type=text] { border: 0; border-radius: 4px; background: var(--panel); padding: 2px 4px; outline: none; }
+  .fill input[type=range] { position: absolute; inset: 0; opacity: 0; pointer-events: none; }
+  .fill:focus-within { outline: 1px solid var(--muted); outline-offset: -1px; }
+  .row { padding: 2px 4px 2px 10px; }
+  .row select { border: 0; border-radius: 4px; background: var(--panel); text-align: right; padding: 2px 4px; outline: none; }
+  .row:focus-within { outline: 1px solid var(--muted); outline-offset: -1px; }
+  .switch { padding: 0 8px 0 10px; cursor: pointer; }
+  .switch input { appearance: none; margin: 0; width: 30px; height: 16px; border-radius: 9px; background: var(--line); position: relative; cursor: pointer; flex: none; }
+  .switch input::before { content: ""; position: absolute; top: 2px; left: 2px; width: 12px; height: 12px; border-radius: 50%; background: #fff;
+    box-shadow: 0 1px 2px var(--shade); transition: transform .12s; }
+  .switch input:checked { background: var(--accent); }
+  .switch input:checked::before { transform: translateX(14px); }
+  .switch input:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+  .off { opacity: .45; pointer-events: none; }
+  .sub { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .07em; color: var(--muted); padding: 8px 6px 2px; }
+  .note { font-size: 12px; color: var(--muted); padding: 4px 6px; margin: 0; }
+  .note.bad { color: var(--bad); }
+  .note.warn { color: var(--warn); font-weight: 600; }
+  .note:empty { display: none; }
+
+  @media (max-width: 760px) { #dock { width: min(268px, 100% - 24px); } }
+  @media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } }
 </style>
 <script type="importmap">
 { "imports": {
@@ -31,22 +118,29 @@
 </script>
 </head>
 <body>
-<aside>
-  <h1>Concrete Pot Mold</h1>
-  <form id="f"></form>
-  <h2>View</h2>
-  <label>Explode<input type="range" id="explode" min="0" max="80" value="30"></label>
-  <h2>Parts</h2>
-  <div id="parts">
-    <label><span>Pot</span><input type="checkbox" value="pot" checked></label>
-    <label><span>Core</span><input type="checkbox" value="core"></label>
-    <label><span>Base plate</span><input type="checkbox" value="base"></label>
-    <label><span>Outer wedges</span><input type="checkbox" value="wedges"></label>
+<header id="bar">
+  <h1>Concrete Pot Mould</h1>
+  <button class="icon" id="theme" title="Switch between light and dark" aria-label="Switch between light and dark">
+    <svg viewBox="0 0 24 24"><path d="M20 14.5A8 8 0 0 1 9.5 4a8 8 0 1 0 10.5 10.5z"/></svg>
+  </button>
+  <button class="btn main" id="export" title="Download the mould parts that are switched on as one 3MF file">Export 3MF</button>
+</header>
+<main id="stage">
+  <div id="dock">
+    <section class="card">
+      <header><span class="title">Design</span></header>
+      <div class="body">
+        <p class="note bad" id="err"></p>
+        <p class="note warn" id="warn"></p>
+        <form id="f"></form>
+      </div>
+    </section>
+    <section class="card">
+      <header><span class="title">View</span></header>
+      <div class="body" id="viewbody"></div>
+    </section>
   </div>
-  <p id="err"></p>
-  <button id="export">Export shown mould parts (3MF)</button>
-</aside>
-<main id="view"></main>
+</main>
 <script type="module">
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
@@ -54,49 +148,119 @@ import Module from 'manifold-3d';
 import { zipSync, strToU8 } from 'fflate';
 import { build, defaults, patterns } from './mold.js';
 
-// [name, label, min, max, unit, step]
-const fields = [
-  ['Pot', [['height', 'Height', 40, 400], ['topDia', 'Top diameter', 40, 400], ['bottomDia', 'Bottom diameter', 40, 400],
-    ['wall', 'Wall thickness', 4, 40], ['base', 'Base thickness', 4, 40], ['lipHeight', 'Lip height', 0, 60],
-    ['lipWidth', 'Lip width', 0, 30], ['drainDia', 'Drain hole', 0, 40]]],
-  ['Pattern', [['patternDepth', 'Depth', 0, 10], ['patternCount', 'Count around', 4, 60, ''], ['patternPitch', 'Vertical pitch', 5, 60]]],
-  ['Mould', [['wedges', 'Outer wedges', 2, 12, ''], ['moldWall', 'Mould wall', 2, 20], ['gap', 'Gap between parts', 0, 1, 'mm', 0.05],
-    ['draft', 'Core draft', 0, 5, '°', 0.5], ['bed', 'Printer bed size', 100, 500]]],
+// theme: data-theme on <html>, none = match system
+const root = document.documentElement;
+try { const t = localStorage.getItem('theme'); if (t) root.dataset.theme = t; } catch {}
+const isDark = () => root.dataset.theme ? root.dataset.theme === 'dark' : matchMedia('(prefers-color-scheme: dark)').matches;
+document.getElementById('theme').onclick = () => {
+  root.dataset.theme = isDark() ? 'light' : 'dark';
+  try { localStorage.setItem('theme', root.dataset.theme); } catch {}
+  paintStage();
+};
+
+// Fill-bar slider: drag moves by distance (Shift = 1/8 speed), a click turns the number into a text box.
+// A hidden range input underneath carries the value, the arrow keys and the form name.
+function fillBar(name, label, min, max, step, value) {
+  const el = document.createElement('div'), dec = (String(step).split('.')[1] || '').length;
+  el.className = 'fill';
+  el.innerHTML = `<span class="name">${label}</span><span class="val"></span>
+    <input type="range" name="${name}" min="${min}" max="${max}" step="${step}" value="${value}" aria-label="${label}">`;
+  const range = el.querySelector('input'), val = el.querySelector('.val');
+  const show = () => { val.textContent = (+range.value).toFixed(dec); el.style.setProperty('--p', `${(range.value - min) / (max - min) * 100}%`); };
+  const set = v => {
+    v = Math.min(max, Math.max(min, Math.round((v - min) / step) * step + min));
+    if (+range.value === v) return;
+    range.value = v; show(); range.dispatchEvent(new Event('input', { bubbles: true }));
+  };
+  range.addEventListener('input', show);
+  el.addEventListener('pointerdown', e => {
+    if (e.target.type === 'text' || e.button) return;
+    el.setPointerCapture(e.pointerId);
+    let x = e.clientX, moved = false, v = +range.value;
+    const move = ev => {
+      if (!moved && Math.abs(ev.clientX - e.clientX) < 3) return;
+      moved = true;
+      v += (ev.clientX - x) * (max - min) / el.clientWidth / (ev.shiftKey ? 8 : 1); x = ev.clientX; set(v);
+    };
+    const up = () => {
+      el.removeEventListener('pointermove', move); el.removeEventListener('pointerup', up);
+      if (moved) return;
+      const box = Object.assign(document.createElement('input'), { type: 'text', value: val.textContent });
+      val.replaceWith(box); box.focus(); box.select();
+      let keep = true;
+      const done = () => { box.replaceWith(val); if (keep && box.value.trim() !== '' && !isNaN(box.value)) set(+box.value); };
+      box.onkeydown = k => { if (k.key === 'Enter') box.blur(); if (k.key === 'Escape') { keep = false; box.blur(); } };
+      box.onblur = done;
+    };
+    el.addEventListener('pointermove', move); el.addEventListener('pointerup', up);
+  });
+  show();
+  return el;
+}
+const switchRow = (name, label, on, attr = 'name') =>
+  `<label class="switch"><span class="name">${label}</span><input type="checkbox" role="switch" ${attr}="${name}"${on ? ' checked' : ''}></label>`;
+
+// [name, label, min, max, step]
+const folds = [
+  ['Pot', [['height', 'Height (mm)', 40, 400], ['topDia', 'Top diameter (mm)', 40, 400], ['bottomDia', 'Bottom diameter (mm)', 40, 400],
+    ['wall', 'Wall (mm)', 4, 40], ['base', 'Base (mm)', 4, 40], ['lipHeight', 'Lip height (mm)', 0, 60],
+    ['lipWidth', 'Lip width (mm)', 0, 30], ['drainDia', 'Drain hole (mm)', 0, 40]]],
+  ['Pattern', [['patternDepth', 'Depth (mm)', 0, 10], ['patternCount', 'Count around', 4, 60], ['patternPitch', 'Vertical pitch (mm)', 5, 60]]],
+  ['Mould', [['wedges', 'Outer wedges', 2, 12], ['moldWall', 'Mould wall (mm)', 2, 20], ['gap', 'Gap between parts (mm)', 0, 1, 0.05],
+    ['draft', 'Core draft (°)', 0, 5, 0.5], ['bed', 'Printer bed (mm)', 100, 500]]],
+  ['Clamping', []],
 ];
 const form = document.getElementById('f');
-for (const [title, list] of fields) {
-  form.insertAdjacentHTML('beforeend', `<h2>${title}</h2>`);
-  if (title === 'Pattern') form.insertAdjacentHTML('beforeend', `<label>Style<select name="pattern">${Object.keys(patterns).map(k => `<option>${k}</option>`).join('')}</select></label>`);
-  for (const [k, label, min, max, unit = 'mm', step = 1] of list)
-    form.insertAdjacentHTML('beforeend', `<label>${label}${unit && ` (${unit})`}<input type="number" name="${k}" min="${min}" max="${max}" step="${step}" value="${defaults[k]}">
-      <input type="range" data-k="${k}" min="${min}" max="${max}" step="${step}" value="${defaults[k]}"></label>`);
+for (const [title, list] of folds) {
+  const d = document.createElement('details');
+  d.open = title !== 'Pattern' && title !== 'Clamping';
+  d.innerHTML = `<summary>${title}<span class="state" data-for="${title}"></span></summary>`;
+  if (title === 'Pattern') d.insertAdjacentHTML('beforeend', `<label class="row"><span class="name">Style</span>
+    <select name="pattern">${Object.keys(patterns).map(k => `<option>${k}</option>`).join('')}</select></label>`);
+  for (const [k, label, min, max, step = 1] of list) d.append(fillBar(k, label, min, max, step, defaults[k]));
+  if (title === 'Clamping') d.insertAdjacentHTML('beforeend', [['bolts', 'Bolt holes (M5)']]
+    .map(([k, label]) => switchRow(k, label, defaults[k])).join(''));
+  form.append(d);
 }
-form.insertAdjacentHTML('beforeend', `<h2>Clamping</h2>` + [['bolts', 'Bolt holes (M5)']]
-  .map(([k, label]) => `<label><span>${label}</span><input type="checkbox" name="${k}"${defaults[k] ? ' checked' : ''}></label>`).join(''));
-form.addEventListener('input', e => {
-  const k = e.target.name || e.target.dataset.k;
-  if (e.target.dataset.k || e.target.type === 'number') form.querySelector(`[name=${k}]`).value = form.querySelector(`[data-k=${k}]`).value = e.target.value;
-  schedule();
-});
 const params = () => ({ ...defaults, ...Object.fromEntries([...form.elements].filter(e => e.name)
-  .map(e => [e.name, e.type === 'checkbox' ? e.checked : e.type === 'number' ? +e.value : e.value])) });
+  .map(e => [e.name, e.type === 'checkbox' ? e.checked : e.type === 'range' ? +e.value : e.value])) });
+
+// closed folds show their state; controls that can't do anything right now are greyed out
+function refreshForm() {
+  const p = params(), state = {
+    Pot: `${p.height} × ${p.topDia}`, Pattern: p.pattern === 'none' ? 'Off' : p.pattern,
+    Mould: `${p.wedges} wedges`, Clamping: p.bolts ? 'Ribs, bolts' : 'Ribs',
+  };
+  for (const s of form.querySelectorAll('.state')) s.textContent = state[s.dataset.for];
+  for (const k of ['patternDepth', 'patternCount', 'patternPitch']) form.elements[k].closest('.fill').classList.toggle('off', p.pattern === 'none');
+}
+form.addEventListener('input', () => { refreshForm(); schedule(); });
+form.addEventListener('change', () => { refreshForm(); schedule(); });
+refreshForm();
+
+const viewbody = document.getElementById('viewbody');
+viewbody.append(fillBar('explode', 'Explode', 0, 80, 1, 30));
+viewbody.insertAdjacentHTML('beforeend', `<div class="sub">Parts</div><div id="parts">` +
+  [['pot', 'Pot', true], ['core', 'Core'], ['base', 'Base plate'], ['wedges', 'Outer wedges']].map(([k, l, on]) => switchRow(k, l, on, 'value')).join('') + '</div>');
 
 // three.js scene
-const view = document.getElementById('view');
+const stage = document.getElementById('stage');
 const renderer = new THREE.WebGLRenderer({ antialias: true });
 renderer.setPixelRatio(devicePixelRatio);
-view.append(renderer.domElement);
+stage.prepend(renderer.domElement);
 const scene = new THREE.Scene();
-scene.background = new THREE.Color(matchMedia('(prefers-color-scheme: dark)').matches ? 0x2e2e2e : 0xe8e6e1);
+const paintStage = () => { scene.background = new THREE.Color(getComputedStyle(root).getPropertyValue('--stage').trim()); };
+paintStage();
+matchMedia('(prefers-color-scheme: dark)').addEventListener('change', paintStage);
 const camera = new THREE.PerspectiveCamera(40, 1, 1, 5000);
 camera.up.set(0, 0, 1);
 camera.position.set(320, -380, 260);
 const controls = new OrbitControls(camera, renderer.domElement);
-controls.target.set(0, 0, 60);
+controls.target.set(60, 0, 60); // ponytail: aim right of centre so the pot clears the docked cards
 scene.add(new THREE.HemisphereLight(0xffffff, 0x666666, 2.2));
 const sun = new THREE.DirectionalLight(0xffffff, 1.5); sun.position.set(200, -300, 500); scene.add(sun);
 const group = new THREE.Group(); scene.add(group);
-function resize() { renderer.setSize(view.clientWidth, view.clientHeight); camera.aspect = view.clientWidth / view.clientHeight; camera.updateProjectionMatrix(); }
+function resize() { renderer.setSize(stage.clientWidth, stage.clientHeight); camera.aspect = stage.clientWidth / stage.clientHeight; camera.updateProjectionMatrix(); }
 addEventListener('resize', resize); resize();
 renderer.setAnimationLoop(() => { controls.update(); renderer.render(scene, camera); });
 
@@ -110,19 +274,20 @@ const toGeom = m => {
   const flat = g.toNonIndexed(); flat.computeVertexNormals();
   return flat;
 };
-const mat = c => new THREE.MeshStandardMaterial({ color: c, roughness: 0.7, flatShading: false });
+const mat = c => new THREE.MeshStandardMaterial({ color: c, roughness: 0.7 });
 
+const shown = () => new Set([...document.querySelectorAll('#parts input:checked')].map(c => c.value));
 function layout() {
-  const d = +document.getElementById('explode').value;
-  const on = shown();
+  const d = +viewbody.querySelector('[name=explode]').value, on = shown();
   for (const o of group.children) { o.position.copy(o.userData.dir).multiplyScalar(d); o.visible = on.has(o.userData.part); }
+  document.getElementById('export').disabled = !parts || !['core', 'base', 'wedges'].some(k => on.has(k));
 }
 function regen() {
-  const err = document.getElementById('err');
+  const err = document.getElementById('err'), warn = document.getElementById('warn');
   try {
-    const p = params();
-    parts = build(wasm, p);
-    err.textContent = parts.warnings.join('. ');
+    parts = build(wasm, params());
+    err.textContent = '';
+    warn.textContent = parts.warnings.join('. ');
   } catch (e) { err.textContent = e.message; return; }
   group.clear();
   const { pot, core, wedges } = parts, n = wedges.length;
@@ -134,12 +299,11 @@ function regen() {
   layout();
 }
 function schedule() { clearTimeout(timer); timer = setTimeout(regen, 120); }
-document.getElementById('explode').oninput = layout;
-const shown = () => new Set([...document.querySelectorAll('#parts input:checked')].map(c => c.value));
-document.getElementById('parts').onchange = layout;
+viewbody.addEventListener('input', layout);
+viewbody.addEventListener('change', layout);
 regen();
 
-// 3MF: one object per mold part, laid out side by side so they don't overlap on load
+// 3MF: one object per mould part, laid out side by side so they don't overlap on load
 function to3mf(named, spacing) {
   let objects = '', items = '';
   named.forEach(([name, m], i) => {
@@ -159,11 +323,10 @@ function to3mf(named, spacing) {
 document.getElementById('export').onclick = () => {
   if (!parts) return;
   const on = shown();
-  const named = [['core', parts.core], ['base plate', parts.base], ...parts.wedges.map((w, i) => [`wedge ${i + 1}`, w])]
-    .filter(([name]) => on.has(name.startsWith('wedge') ? 'wedges' : name.split(' ')[0]));
-  if (!named.length) { document.getElementById('err').textContent = 'Turn on at least one mould part to export'; return; }
+  const named = [['core', 'core', parts.core], ['base', 'base plate', parts.base], ...parts.wedges.map((w, i) => ['wedges', `wedge ${i + 1}`, w])]
+    .filter(([part]) => on.has(part)).map(([, name, m]) => [name, m]);
   const blob = new Blob([to3mf(named, parts.rMax * 2 + 10)], { type: 'model/3mf' });
-  const a = Object.assign(document.createElement('a'), { href: URL.createObjectURL(blob), download: 'pot-mold.3mf' });
+  const a = Object.assign(document.createElement('a'), { href: URL.createObjectURL(blob), download: 'pot-mould.3mf' });
   a.click(); URL.revokeObjectURL(a.href);
 };
 </script>
