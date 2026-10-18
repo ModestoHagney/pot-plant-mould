@@ -51,6 +51,8 @@
   .btn.main { background: var(--accent); border-color: var(--accent); color: var(--accent-fg); font-weight: 500; }
   .btn.main:hover { filter: brightness(1.08); }
   .btn:disabled { opacity: .4; pointer-events: none; }
+  .btns { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin: 4px 6px; }
+  .btns .btn { height: 30px; padding: 4px 6px; }
   button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 
   /* stage + dock */
@@ -205,7 +207,7 @@ const folds = [
   ['Pot', [['height', 'Height (mm)', 40, 400], ['topDia', 'Top diameter (mm)', 40, 400], ['bottomDia', 'Bottom diameter (mm)', 40, 400],
     ['wall', 'Wall (mm)', 4, 40], ['base', 'Base (mm)', 4, 40], ['lipHeight', 'Lip height (mm)', 0, 60],
     ['lipWidth', 'Lip width (mm)', 0, 30], ['drainDia', 'Drain hole (mm)', 0, 40]]],
-  ['Pattern', [['patternDepth', 'Depth (mm)', 0, 10], ['patternCount', 'Count around', 4, 60], ['patternPitch', 'Vertical pitch (mm)', 5, 60]]],
+  ['Pattern', [['patternDepth', 'Depth (mm)', 0, 10], ['patternCount', 'Count around', 4, 60], ['patternPitch', 'Vertical pitch (mm)', 5, 60], ['seed', 'Seed', 1, 999]]],
   ['Mould', [['wedges', 'Outer wedges', 2, 12], ['moldWall', 'Mould wall (mm)', 2, 20], ['gap', 'Gap between parts (mm)', 0, 1, 0.05],
     ['draft', 'Core draft (°)', 0, 5, 0.5], ['bed', 'Printer bed (mm)', 100, 500]]],
   ['Clamping', []],
@@ -218,6 +220,7 @@ for (const [title, list] of folds) {
   if (title === 'Pattern') d.insertAdjacentHTML('beforeend', `<label class="row"><span class="name">Style</span>
     <select name="pattern">${Object.keys(patterns).map(k => `<option>${k}</option>`).join('')}</select></label>`);
   for (const [k, label, min, max, step = 1] of list) d.append(fillBar(k, label, min, max, step, defaults[k]));
+  if (title === 'Pattern') d.insertAdjacentHTML('beforeend', '<div class="btns"><button type="button" class="btn" id="reroll" title="Pick a new random seed">Reroll</button></div>');
   if (title === 'Clamping') d.insertAdjacentHTML('beforeend', [['bolts', 'Bolt holes (M5)']]
     .map(([k, label]) => switchRow(k, label, defaults[k])).join(''));
   form.append(d);
@@ -233,7 +236,12 @@ function refreshForm() {
   };
   for (const s of form.querySelectorAll('.state')) s.textContent = state[s.dataset.for];
   for (const k of ['patternDepth', 'patternCount', 'patternPitch']) form.elements[k].closest('.fill').classList.toggle('off', p.pattern === 'none');
+  form.elements.seed.closest('.fill').classList.toggle('off', p.pattern !== 'lowpoly');
+  document.getElementById('reroll').disabled = p.pattern !== 'lowpoly';
 }
+document.getElementById('reroll').onclick = () => {
+  const s = form.elements.seed; s.value = 1 + Math.floor(Math.random() * 999); s.dispatchEvent(new Event('input', { bubbles: true }));
+};
 form.addEventListener('input', () => { refreshForm(); schedule(); });
 form.addEventListener('change', () => { refreshForm(); schedule(); });
 refreshForm();
