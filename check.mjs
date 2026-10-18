@@ -1,8 +1,8 @@
 import Module from 'manifold-3d';
 import { build, defaults, patterns } from './mold.js';
 const wasm = await Module(); wasm.setup();
-for (const [n, pattern] of [[2, 'none'], [3, 'ribs'], [6, 'diamonds'], ...Object.keys(patterns).map(k => [4, k])]) {
-  const { pot, core, base, wedges } = build(wasm, { ...defaults, wedges: n, pattern });
+for (const [n, pattern, extra] of [[2, 'none', { bolts: true, straps: true }], [3, 'ribs', { ribs: false }], [6, 'diamonds', { bolts: true }], ...Object.keys(patterns).map(k => [4, k])]) {
+  const { pot, core, base, wedges } = build(wasm, { ...defaults, wedges: n, pattern, ...extra });
   if (pot.status() !== 'NoError' || pot.genus() !== 1) throw new Error(`bad pot for ${pattern}`);
   const ws = wedges.reduce((a, w) => a + w.volume(), 0);
   // pot + core + shell must exactly fill the bounding cylinder + cap (nothing overlaps, nothing missing)
@@ -13,3 +13,8 @@ for (const [n, pattern] of [[2, 'none'], [3, 'ribs'], [6, 'diamonds'], ...Object
   if (Math.abs(sum - all.volume()) > 1) throw new Error('parts overlap');
   if (wedges.some(w => w.isEmpty())) throw new Error('empty wedge');
 }
+
+const big = build(wasm, { ...defaults, bed: 100, bolts: true, straps: true });
+if (!big.warnings.some(w => w.startsWith('Core'))) throw new Error('bed check missed an oversized core');
+if (build(wasm, defaults).warnings.length) throw new Error('default pot should fit a 256 mm bed');
+console.log('bed check ok');

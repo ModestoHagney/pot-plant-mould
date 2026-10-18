@@ -54,27 +54,32 @@ import Module from 'manifold-3d';
 import { zipSync, strToU8 } from 'fflate';
 import { build, defaults, patterns } from './mold.js';
 
+// [name, label, min, max, unit, step]
 const fields = [
   ['Pot', [['height', 'Height', 40, 400], ['topDia', 'Top diameter', 40, 400], ['bottomDia', 'Bottom diameter', 40, 400],
     ['wall', 'Wall thickness', 4, 40], ['base', 'Base thickness', 4, 40], ['lipHeight', 'Lip height', 0, 60],
     ['lipWidth', 'Lip width', 0, 30], ['drainDia', 'Drain hole', 0, 40]]],
-  ['Pattern', [['patternDepth', 'Depth', 0, 10], ['patternCount', 'Count around', 4, 60], ['patternPitch', 'Vertical pitch', 5, 60]]],
-  ['Mold', [['wedges', 'Outer wedges', 2, 8], ['moldWall', 'Mold wall', 2, 10]]],
+  ['Pattern', [['patternDepth', 'Depth', 0, 10], ['patternCount', 'Count around', 4, 60, ''], ['patternPitch', 'Vertical pitch', 5, 60]]],
+  ['Mould', [['wedges', 'Outer wedges', 2, 12, ''], ['moldWall', 'Mould wall', 2, 10], ['gap', 'Gap between parts', 0, 1, 'mm', 0.05],
+    ['draft', 'Core draft', 0, 5, '°', 0.5], ['bed', 'Printer bed size', 100, 500]]],
 ];
 const form = document.getElementById('f');
 for (const [title, list] of fields) {
   form.insertAdjacentHTML('beforeend', `<h2>${title}</h2>`);
   if (title === 'Pattern') form.insertAdjacentHTML('beforeend', `<label>Style<select name="pattern">${Object.keys(patterns).map(k => `<option>${k}</option>`).join('')}</select></label>`);
-  for (const [k, label, min, max] of list)
-    form.insertAdjacentHTML('beforeend', `<label>${label}${k === "wedges" || k === "patternCount" ? "" : " (mm)"}<input type="number" name="${k}" min="${min}" max="${max}" value="${defaults[k]}">
-      <input type="range" data-k="${k}" min="${min}" max="${max}" value="${defaults[k]}"></label>`);
+  for (const [k, label, min, max, unit = 'mm', step = 1] of list)
+    form.insertAdjacentHTML('beforeend', `<label>${label}${unit && ` (${unit})`}<input type="number" name="${k}" min="${min}" max="${max}" step="${step}" value="${defaults[k]}">
+      <input type="range" data-k="${k}" min="${min}" max="${max}" step="${step}" value="${defaults[k]}"></label>`);
 }
+form.insertAdjacentHTML('beforeend', `<h2>Clamping</h2>` + [['ribs', 'Clamp ribs on seams'], ['bolts', 'Bolt holes (M5)'], ['straps', 'Strap notches']]
+  .map(([k, label]) => `<label><span>${label}</span><input type="checkbox" name="${k}"${defaults[k] ? ' checked' : ''}></label>`).join(''));
 form.addEventListener('input', e => {
   const k = e.target.name || e.target.dataset.k;
   if (e.target.dataset.k || e.target.type === 'number') form.querySelector(`[name=${k}]`).value = form.querySelector(`[data-k=${k}]`).value = e.target.value;
   schedule();
 });
-const params = () => ({ ...defaults, ...Object.fromEntries([...new FormData(form)].map(([k, v]) => [k, isNaN(v) ? v : +v])) });
+const params = () => ({ ...defaults, ...Object.fromEntries([...form.elements].filter(e => e.name)
+  .map(e => [e.name, e.type === 'checkbox' ? e.checked : e.type === 'number' ? +e.value : e.value])) });
 
 // three.js scene
 const view = document.getElementById('view');
@@ -117,7 +122,7 @@ function regen() {
   try {
     const p = params();
     parts = build(wasm, p);
-    err.textContent = '';
+    err.textContent = parts.warnings.join('. ');
   } catch (e) { err.textContent = e.message; return; }
   group.clear();
   const { pot, core, wedges } = parts, n = wedges.length;
