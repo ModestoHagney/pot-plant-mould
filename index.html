@@ -241,7 +241,7 @@ refreshForm();
 const viewbody = document.getElementById('viewbody');
 viewbody.append(fillBar('explode', 'Explode', 0, 80, 1, 30));
 viewbody.insertAdjacentHTML('beforeend', `<div class="sub">Parts</div><div id="parts">` +
-  [['pot', 'Pot', true], ['core', 'Core'], ['base', 'Base plate'], ['wedges', 'Outer wedges']].map(([k, l, on]) => switchRow(k, l, on, 'value')).join('') + '</div>');
+  [['pot', 'Pot', true], ['core', 'Core'], ['wedges', 'Outer wedges']].map(([k, l, on]) => switchRow(k, l, on, 'value')).join('') + '</div>');
 
 // three.js scene
 const stage = document.getElementById('stage');
@@ -280,7 +280,7 @@ const shown = () => new Set([...document.querySelectorAll('#parts input:checked'
 function layout() {
   const d = +viewbody.querySelector('[name=explode]').value, on = shown();
   for (const o of group.children) { o.position.copy(o.userData.dir).multiplyScalar(d); o.visible = on.has(o.userData.part); }
-  document.getElementById('export').disabled = !parts || !['core', 'base', 'wedges'].some(k => on.has(k));
+  document.getElementById('export').disabled = !parts || !['core', 'wedges'].some(k => on.has(k));
 }
 function regen() {
   const err = document.getElementById('err'), warn = document.getElementById('warn');
@@ -294,7 +294,6 @@ function regen() {
   const add = (part, m, color, dir) => { const o = new THREE.Mesh(toGeom(m), mat(color)); o.userData = { part, dir }; group.add(o); };
   add('pot', pot, 0x9a9a95, new THREE.Vector3());
   add('core', core, 0xd9a35f, new THREE.Vector3(0, 0, 1.5));
-  add('base', parts.base, 0x8a6fb3, new THREE.Vector3(0, 0, -1));
   wedges.forEach((w, i) => { const a = (i + 0.5) / n * 2 * Math.PI; add('wedges', w, i % 2 ? 0x4f86c6 : 0x6aa0d8, new THREE.Vector3(Math.cos(a), Math.sin(a), 0)); });
   layout();
 }
@@ -323,7 +322,7 @@ function to3mf(named, spacing) {
 document.getElementById('export').onclick = () => {
   if (!parts) return;
   const on = shown();
-  const named = [['core', 'core', parts.core], ['base', 'base plate', parts.base], ...parts.wedges.map((w, i) => ['wedges', `wedge ${i + 1}`, w])]
+  const named = [['core', 'core', parts.core], ...parts.wedges.map((w, i) => ['wedges', `wedge ${i + 1}`, w])]
     .filter(([part]) => on.has(part)).map(([, name, m]) => [name, m]);
   const blob = new Blob([to3mf(named, parts.rMax * 2 + 10)], { type: 'model/3mf' });
   const a = Object.assign(document.createElement('a'), { href: URL.createObjectURL(blob), download: 'pot-mould.3mf' });
