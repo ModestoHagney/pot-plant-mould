@@ -1,0 +1,153 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Concrete Pot Mold</title>
+<style>
+  :root { color-scheme: light dark; --bg: #f4f2ee; --panel: #fff; --text: #222; --muted: #777; --accent: #b5652e; }
+  @media (prefers-color-scheme: dark) { :root { --bg: #1b1b1b; --panel: #262626; --text: #eee; --muted: #999; } }
+  * { box-sizing: border-box; }
+  body { margin: 0; font: 14px system-ui, sans-serif; background: var(--bg); color: var(--text); display: flex; height: 100dvh; }
+  aside { width: 280px; padding: 16px; background: var(--panel); overflow-y: auto; }
+  h1 { font-size: 18px; margin: 0 0 12px; }
+  h2 { font-size: 12px; text-transform: uppercase; color: var(--muted); margin: 16px 0 6px; }
+  label { display: grid; grid-template-columns: 1fr 64px; gap: 4px 8px; align-items: center; margin: 6px 0; }
+  label input[type=range] { grid-column: 1 / -1; }
+  input[type=number] { width: 64px; }
+  button { width: 100%; padding: 10px; margin-top: 16px; border: 0; border-radius: 6px; background: var(--accent); color: #fff; font-weight: 600; cursor: pointer; }
+  #err { color: #d33; min-height: 1em; }
+  main { flex: 1; position: relative; }
+  canvas { display: block; }
+  @media (max-width: 700px) { body { flex-direction: column-reverse; } aside { width: auto; height: 45dvh; } }
+</style>
+<script type="importmap">
+{ "imports": {
+  "three": "https://cdn.jsdelivr.net/npm/three@0.186.1/build/three.module.js",
+  "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.186.1/examples/jsm/",
+  "manifold-3d": "https://cdn.jsdelivr.net/npm/manifold-3d@3.5.4/manifold.js",
+  "fflate": "https://cdn.jsdelivr.net/npm/fflate@0.8.2/esm/browser.js"
+} }
+</script>
+</head>
+<body>
+<aside>
+  <h1>Concrete Pot Mold</h1>
+  <form id="f"></form>
+  <h2>View</h2>
+  <label>Explode<input type="range" id="explode" min="0" max="80" value="30"></label>
+  <label><span>Show pot</span><input type="checkbox" id="showPot" checked></label>
+  <p id="err"></p>
+  <button id="export">Export mold (3MF)</button>
+</aside>
+<main id="view"></main>
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import Module from 'manifold-3d';
+import { zipSync, strToU8 } from 'fflate';
+import { build, defaults } from './mold.js';
+
+const fields = [
+  ['Pot', [['height', 'Height', 40, 400], ['topDia', 'Top diameter', 40, 400], ['bottomDia', 'Bottom diameter', 40, 400],
+    ['wall', 'Wall thickness', 4, 40], ['base', 'Base thickness', 4, 40], ['lipHeight', 'Lip height', 0, 60],
+    ['lipWidth', 'Lip width', 0, 30], ['drainDia', 'Drain hole', 0, 40]]],
+  ['Mold', [['wedges', 'Outer wedges', 2, 8], ['moldWall', 'Mold wall', 2, 10]]],
+];
+const form = document.getElementById('f');
+for (const [title, list] of fields) {
+  form.insertAdjacentHTML('beforeend', `<h2>${title}</h2>`);
+  for (const [k, label, min, max] of list)
+    form.insertAdjacentHTML('beforeend', `<label>${label}${k === "wedges" ? "" : " (mm)"}<input type="number" name="${k}" min="${min}" max="${max}" value="${defaults[k]}">
+      <input type="range" data-k="${k}" min="${min}" max="${max}" value="${defaults[k]}"></label>`);
+}
+form.addEventListener('input', e => {
+  const k = e.target.name || e.target.dataset.k;
+  form.querySelector(`[name=${k}]`).value = form.querySelector(`[data-k=${k}]`).value = e.target.value;
+  schedule();
+});
+const params = () => ({ ...defaults, ...Object.fromEntries([...new FormData(form)].map(([k, v]) => [k, +v])) });
+
+// three.js scene
+const view = document.getElementById('view');
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setPixelRatio(devicePixelRatio);
+view.append(renderer.domElement);
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(matchMedia('(prefers-color-scheme: dark)').matches ? 0x2e2e2e : 0xe8e6e1);
+const camera = new THREE.PerspectiveCamera(40, 1, 1, 5000);
+camera.up.set(0, 0, 1);
+camera.position.set(320, -380, 260);
+const controls = new OrbitControls(camera, renderer.domElement);
+controls.target.set(0, 0, 60);
+scene.add(new THREE.HemisphereLight(0xffffff, 0x666666, 2.2));
+const sun = new THREE.DirectionalLight(0xffffff, 1.5); sun.position.set(200, -300, 500); scene.add(sun);
+const group = new THREE.Group(); scene.add(group);
+function resize() { renderer.setSize(view.clientWidth, view.clientHeight); camera.aspect = view.clientWidth / view.clientHeight; camera.updateProjectionMatrix(); }
+addEventListener('resize', resize); resize();
+renderer.setAnimationLoop(() => { controls.update(); renderer.render(scene, camera); });
+
+const wasm = await Module(); wasm.setup();
+let parts = null, timer;
+const toGeom = m => {
+  const mesh = m.getMesh(), g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.BufferAttribute(mesh.vertProperties, mesh.numProp));
+  g.setIndex(new THREE.BufferAttribute(mesh.triVerts, 1));
+  // ponytail: flat normals so sharp edges stay sharp; crease-angle normals if it looks faceted
+  const flat = g.toNonIndexed(); flat.computeVertexNormals();
+  return flat;
+};
+const mat = c => new THREE.MeshStandardMaterial({ color: c, roughness: 0.7, flatShading: false });
+
+function layout() {
+  const d = +document.getElementById('explode').value;
+  for (const o of group.children) o.position.copy(o.userData.dir).multiplyScalar(d);
+  group.children[0].visible = document.getElementById('showPot').checked;
+}
+function regen() {
+  const err = document.getElementById('err');
+  try {
+    const p = params();
+    parts = build(wasm, p);
+    err.textContent = '';
+  } catch (e) { err.textContent = e.message; return; }
+  group.clear();
+  const { pot, core, wedges } = parts, n = wedges.length;
+  const add = (m, color, dir) => { const o = new THREE.Mesh(toGeom(m), mat(color)); o.userData.dir = dir; group.add(o); };
+  add(pot, 0x9a9a95, new THREE.Vector3());
+  add(core, 0xd9a35f, new THREE.Vector3(0, 0, 1.5));
+  wedges.forEach((w, i) => { const a = (i + 0.5) / n * 2 * Math.PI; add(w, i % 2 ? 0x4f86c6 : 0x6aa0d8, new THREE.Vector3(Math.cos(a), Math.sin(a), 0)); });
+  layout();
+}
+function schedule() { clearTimeout(timer); timer = setTimeout(regen, 120); }
+document.getElementById('explode').oninput = layout;
+document.getElementById('showPot').onchange = layout;
+regen();
+
+// 3MF: one object per mold part, laid out side by side so they don't overlap on load
+function to3mf(named, spacing) {
+  let objects = '', items = '';
+  named.forEach(([name, m], i) => {
+    const { vertProperties: v, triVerts: t, numProp: np } = m.getMesh();
+    let vs = '', ts = '';
+    for (let j = 0; j < v.length; j += np) vs += `<vertex x="${v[j].toFixed(4)}" y="${v[j + 1].toFixed(4)}" z="${v[j + 2].toFixed(4)}"/>`;
+    for (let j = 0; j < t.length; j += 3) ts += `<triangle v1="${t[j]}" v2="${t[j + 1]}" v3="${t[j + 2]}"/>`;
+    objects += `<object id="${i + 1}" name="${name}" type="model"><mesh><vertices>${vs}</vertices><triangles>${ts}</triangles></mesh></object>`;
+    items += `<item objectid="${i + 1}" transform="1 0 0 0 1 0 0 0 1 ${i * spacing} 0 0"/>`;
+  });
+  return zipSync({
+    '[Content_Types].xml': strToU8('<?xml version="1.0" encoding="UTF-8"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="model" ContentType="application/vnd.ms-package.3dmanufacturing-3dmodel+xml"/></Types>'),
+    '_rels/.rels': strToU8('<?xml version="1.0" encoding="UTF-8"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Target="/3D/3dmodel.model" Id="rel0" Type="http://schemas.microsoft.com/3dmanufacturing/2013/01/3dmodel"/></Relationships>'),
+    '3D/3dmodel.model': strToU8(`<?xml version="1.0" encoding="UTF-8"?><model unit="millimeter" xml:lang="en-US" xmlns="http://schemas.microsoft.com/3dmanufacturing/core/2015/02"><resources>${objects}</resources><build>${items}</build></model>`),
+  });
+}
+document.getElementById('export').onclick = () => {
+  if (!parts) return;
+  const named = [['core', parts.core], ...parts.wedges.map((w, i) => [`wedge ${i + 1}`, w])];
+  const blob = new Blob([to3mf(named, parts.rMax * 2 + 10)], { type: 'model/3mf' });
+  const a = Object.assign(document.createElement('a'), { href: URL.createObjectURL(blob), download: 'pot-mold.3mf' });
+  a.click(); URL.revokeObjectURL(a.href);
+};
+</script>
+</body>
+</html>
