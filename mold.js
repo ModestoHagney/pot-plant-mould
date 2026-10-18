@@ -96,10 +96,17 @@ export function build(wasm, p) {
   const boltX = ribD - 11, jointX = p.bolts ? (boltX - 2.75) / 2 : ribD * 0.4;
   const jw = Math.min(8, p.bolts ? (boltX - 2.75 - 2) : ribD * 0.5), jh = jw * 0.35 + 2 * g; // tongue width, height
   // rib section for the side y >= g: rounded outer corners, plus a root fillet into the shell
-  // the shell curves away from the seam plane, so the rib root reaches `sag` into the wall (the pot is trimmed off after)
-  const rSmall = Math.min(...prof.map(q => q[0])), yFar = g + ribT + fillet, sag = rSmall - Math.sqrt(rSmall ** 2 - yFar ** 2) + 1;
+  // The shell's outer surface curves away from the seam plane: in this frame it is a circle of radius rS centred
+  // at (-rS, 0). The root fillet is tangent to both the rib's side (y = y0) and that circle, so it blends in.
+  // ponytail: one radius (the smallest) for the whole height; on wider parts the fillet foot sits a hair inside the wall
+  const rS = Math.min(...prof.map(q => q[0])), y0 = g + ribT;
+  const fx = Math.sqrt((rS + fillet) ** 2 - (y0 + fillet) ** 2) - rS, fy = y0 + fillet; // fillet centre
+  const foot = [-rS + rS * (fx + rS) / (rS + fillet), rS * fy / (rS + fillet)]; // tangent point on the wall
+  const sag = rS - Math.sqrt(rS ** 2 - y0 ** 2) + 1; // rib root reaches this far into the wall (the pot is trimmed after)
   const ribSection = CrossSection.square([ribD + sag - 2 * round, ribT - 2 * round]).translate([-sag + round, g + round]).offset(round, 'Round')
-    .add(CrossSection.square([fillet + sag, fillet]).translate([-sag, g + ribT]).subtract(CrossSection.circle(fillet, 32).translate([fillet, g + ribT + fillet])));
+    .add(CrossSection.square([ribD / 2 + sag, ribT]).translate([-sag, g])) // square root end, only the outer corners are rounded
+    .add(new CrossSection([[[-sag, y0], [fx, y0], [fx, fy], foot, [foot[0] - p.moldWall, foot[1]], [-sag - p.moldWall, y0]]], 'NonZero')
+      .subtract(CrossSection.circle(fillet, 48).translate([fx, fy])));
   // beveled tongue (45° sides) standing on the y = g face and pointing into the neighbour; groove = tongue + clearance
   const trap = (yBase, yTip, wBase, wTip) => new CrossSection([[[jointX - wBase / 2, yBase], [jointX + wBase / 2, yBase], [jointX + wTip / 2, yTip], [jointX - wTip / 2, yTip]]], 'NonZero');
   const tongue = trap(g + 0.5, g - jh, jw + 1, jw - 2 * jh); // starts 0.5 inside the rib so it fuses

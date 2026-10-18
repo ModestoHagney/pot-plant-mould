@@ -12,6 +12,8 @@ for (const [n, pattern, extra] of [[2, 'none', { bolts: true }], [3, 'ribs', { l
     'overlap', (sum - all.volume()).toFixed(1));
   if (Math.abs(sum - all.volume()) > 1) throw new Error('parts overlap');
   if (wedges.some(w => w.isEmpty() || w.decompose().length !== 1)) throw new Error('wedge is empty or in pieces');
+  // no bolts = no holes: any genus means a hidden void or tunnel (e.g. a gap at the rib root)
+  if (!extra?.bolts && wedges.some(w => w.genus() !== 0)) throw new Error('wedge has a void or tunnel');
 }
 
 const big = build(wasm, { ...defaults, bed: 100, bolts: true });
