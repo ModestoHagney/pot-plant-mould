@@ -186,11 +186,11 @@ function fillBar(name, label, min, max, step, value) {
     };
     const up = () => {
       el.removeEventListener('pointermove', move); el.removeEventListener('pointerup', up);
-      if (moved) return;
+      if (moved) return range.dispatchEvent(new Event('change', { bubbles: true })); // drag done: now rebuild
       const box = Object.assign(document.createElement('input'), { type: 'text', value: val.textContent });
       val.replaceWith(box); box.focus(); box.select();
       let keep = true;
-      const done = () => { box.replaceWith(val); if (keep && box.value.trim() !== '' && !isNaN(box.value)) set(+box.value); };
+      const done = () => { box.replaceWith(val); if (keep && box.value.trim() !== '' && !isNaN(box.value)) { set(+box.value); range.dispatchEvent(new Event('change', { bubbles: true })); } };
       box.onkeydown = k => { if (k.key === 'Enter') box.blur(); if (k.key === 'Escape') { keep = false; box.blur(); } };
       box.onblur = done;
     };
@@ -245,9 +245,11 @@ form.elements.pattern.addEventListener('change', e => {
   for (const k of ['lipHeight', 'lipWidth']) { form.elements[k].value = 0; form.elements[k].dispatchEvent(new Event('input', { bubbles: true })); }
 });
 document.getElementById('reroll').onclick = () => {
-  const s = form.elements.seed; s.value = 1 + Math.floor(Math.random() * 999); s.dispatchEvent(new Event('input', { bubbles: true }));
+  const s = form.elements.seed; s.value = 1 + Math.floor(Math.random() * 999);
+  s.dispatchEvent(new Event('input', { bubbles: true })); s.dispatchEvent(new Event('change', { bubbles: true }));
 };
-form.addEventListener('input', () => { refreshForm(); schedule(); });
+// sliders only show their number while dragging; the model rebuilds once they're let go (change)
+form.addEventListener('input', refreshForm);
 form.addEventListener('change', () => { refreshForm(); schedule(); });
 refreshForm();
 
@@ -295,16 +297,18 @@ function layout() {
   for (const o of group.children) { o.position.copy(o.userData.dir).multiplyScalar(d); o.visible = on.has(o.userData.part); }
   document.getElementById('export').disabled = !parts || !['core', 'wedges'].some(k => on.has(k));
 }
+let built = new Set(); // parts meshed by the last rebuild; hidden parts are skipped until switched on
 function regen() {
-  const err = document.getElementById('err'), warn = document.getElementById('warn');
+  const err = document.getElementById('err'), warn = document.getElementById('warn'), on = shown();
   try {
-    parts = build(wasm, params());
+    parts = build(wasm, params(), { core: on.has('core'), wedges: on.has('wedges') });
     err.textContent = '';
     warn.textContent = parts.warnings.join('. ');
   } catch (e) { err.textContent = e.message; return; }
   group.clear();
   const { pot, core, wedges } = parts, n = wedges.length;
-  const add = (part, m, color, dir) => { const o = new THREE.Mesh(toGeom(m), mat(color)); o.userData = { part, dir }; group.add(o); };
+  built = on;
+  const add = (part, m, color, dir) => { if (!on.has(part)) return; const o = new THREE.Mesh(toGeom(m), mat(color)); o.userData = { part, dir }; group.add(o); };
   add('pot', pot, 0x9a9a95, new THREE.Vector3());
   add('core', core, 0xd9a35f, new THREE.Vector3(0, 0, 1.5));
   wedges.forEach((w, i) => { const a = (i + 0.5) / n * 2 * Math.PI; add('wedges', w, i % 2 ? 0x4f86c6 : 0x6aa0d8, new THREE.Vector3(Math.cos(a), Math.sin(a), 0)); });
@@ -312,7 +316,7 @@ function regen() {
 }
 function schedule() { clearTimeout(timer); timer = setTimeout(regen, 120); }
 viewbody.addEventListener('input', layout);
-viewbody.addEventListener('change', layout);
+viewbody.addEventListener('change', () => { layout(); if ([...shown()].some(k => !built.has(k))) schedule(); });
 regen();
 
 // 3MF: one object per mould part, laid out side by side so they don't overlap on load

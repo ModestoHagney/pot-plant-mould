@@ -93,7 +93,9 @@ function lowPoly(p, lipZ, r0) {
   };
 }
 
-export function build(wasm, p) {
+// `show` = the parts that will be used. Manifold only computes a part when its mesh is read, so the bed check
+// skips hidden parts to keep them uncomputed.
+export function build(wasm, p, show = { core: true, wedges: true }) {
   const { Manifold, CrossSection } = wasm;
   const rt = p.topDia / 2, rb = p.bottomDia / 2, H = p.height;
   const lipZ = H - p.lipHeight, rLip = rt + p.lipWidth;
@@ -232,8 +234,8 @@ export function build(wasm, p) {
     const { min, max } = m.boundingBox(), w = Math.ceil(max[0] - min[0]), d = Math.ceil(max[1] - min[1]);
     if (Math.max(w, d) > p.bed) warnings.push(`${name} is ${w} × ${d} mm, bigger than your ${p.bed} mm bed`);
   };
-  fits('Core', core);
-  fits('Each wedge', wedges[0].rotate([0, 0, -180 / n]));
+  if (show.core) fits('Core', core);
+  if (show.wedges) fits('Each wedge', wedges[0].rotate([0, 0, -180 / n]));
   if (warnings.length > before) warnings.push('Try more wedges. Splitting the core comes later.');
   return { pot, core, wedges, screws, rMax, warnings };
 }
