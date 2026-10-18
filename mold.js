@@ -1,10 +1,11 @@
 // Pure geometry: params (mm) -> Manifold solids. Pot axis is +Z, base at z=0.
-// Casting is done upright: wedges stand on the base plate, pour the concrete in, then push the core down
-// until its cap sits on the wedges. Vent holes in the cap let excess concrete and air escape.
+// Casting is done upright: wedges stand on the base plate and are clamped shut, the core hangs from its cap
+// which sits on the wedges, and concrete is poured through the gaps in the cap above the pot's rim.
 export const defaults = {
   height: 120, topDia: 140, bottomDia: 100, wall: 10, base: 12,
   lipHeight: 15, lipWidth: 5, drainDia: 15, moldWall: 4, wedges: 4, segments: 96,
   pattern: 'none', patternDepth: 3, patternCount: 24, patternPitch: 20,
+  gap: 0.2, draft: 1, bed: 256, bolts: false,
 };
 
 // Outer-face patterns: (angle, height, params) -> 0..1, scaled by patternDepth and pushed outward only,
@@ -48,32 +49,98 @@ export function build(wasm, p) {
       v[0] *= (r + d) / r; v[1] *= (r + d) / r;
     });
   }
-  // cavity: wall measured horizontally, so it follows the outer taper
-  const cavity = rev([[0, p.base], [rAt(p.base) - p.wall, p.base], [rt - p.wall, H], [0, H]]);
+  // cavity: wall measured horizontally, so it follows the outer taper; narrowed at the bottom if needed so the
+  // core always has at least `draft` degrees of taper to pull out upward
+  const rInTop = rt - p.wall, rInBot = Math.min(rAt(p.base) - p.wall, rInTop - (H - p.base) * Math.tan(p.draft * Math.PI / 180));
+  if (rInBot <= p.drainDia / 2) throw new Error('Draft angle leaves no room at the bottom of the core');
+  const cavityTo = top => rev([[0, p.base], [rInBot, p.base], [rInTop, top], [0, top]]);
   const drain = Manifold.cylinder(p.base + 2, p.drainDia / 2, p.drainDia / 2, p.segments).translate([0, 0, -1]);
-  const pot = outer.subtract(cavity).subtract(drain);
+  const pot = outer.subtract(cavityTo(H)).subtract(drain);
 
-  const rMax = Math.max(rLip, rt + (p.pattern === 'none' ? 0 : p.patternDepth), rb) + p.moldWall;
-  // core = cavity + drain pin + cap that covers the rim and seats the outer mold
-  const vents = Array.from({ length: 6 }, (_, i) => {
-    const a = i / 6 * 2 * Math.PI, r = rt - p.wall / 2;
-    return Manifold.cylinder(p.moldWall + 2, p.wall / 4, p.wall / 4, 24).translate([r * Math.cos(a), r * Math.sin(a), H - 1]);
-  });
-  const cap = Manifold.cylinder(p.moldWall, rMax, rMax, p.segments).translate([0, 0, H]).subtract(Manifold.union(vents));
-  const pin = Manifold.cylinder(p.base, p.drainDia / 2, p.drainDia / 2, p.segments);
-  const cavityToTop = rev([[0, p.base], [rAt(p.base) - p.wall, p.base], [rt - p.wall, H + 0.01], [0, H + 0.01]]);
-  const core = cavityToTop.add(pin).add(cap);
+  // outer wedges: constant wall following the pot's taper (pattern depth included), stepping out for the lip
+  // with a 45° chamfer underneath so the wedge prints standing upright
+  const pd = p.pattern === 'none' ? 0 : p.patternDepth, bodyO = z => rAt(z) + pd + p.moldWall;
+  const rMax = Math.max(rLip + p.moldWall, bodyO(lipZ)), z1 = Math.max(0, lipZ - (rMax - bodyO(lipZ)));
+  const prof = [[bodyO(0), 0], [bodyO(z1), z1], [rMax, lipZ], [rMax, H]].filter((q, i, a) => !i || q[1] > a[i - 1][1] + 1e-6);
+  const rOut = z => { // shell outer radius at height z
+    for (let i = 1; i < prof.length; i++) if (z <= prof[i][1]) {
+      const [[x0, za], [x1, zb]] = [prof[i - 1], prof[i]];
+      return x0 + (x1 - x0) * (z - za) / (zb - za);
+    }
+    return prof.at(-1)[0];
+  };
+  const disk = (r, h, z) => Manifold.cylinder(h, r, r, p.segments).translate([0, 0, z]);
+
+  // core = cavity + drain pin + cap. The cap sits on the wedges; pour gaps over the rim leave 4 spokes.
+  const spoke = Math.max(8, p.wall);
+  const gaps = disk(rLip, p.moldWall + 2, H - 1).subtract(disk(rInTop, p.moldWall + 4, H - 2))
+    .subtract(Manifold.union([0, 90].map(d => Manifold.cube([2 * rMax + 2, spoke, p.moldWall + 6], true).translate([0, 0, H]).rotate([0, 0, d + 45]))));
+  const core = cavityTo(H + 0.01).add(Manifold.cylinder(p.base, p.drainDia / 2, p.drainDia / 2, p.segments))
+    .add(disk(rMax, p.moldWall, H).subtract(gaps));
   // base plate closes the bottom of the outer mold; the core's drain pin rests on it
-  const base = Manifold.cylinder(p.moldWall, rMax, rMax, p.segments).translate([0, 0, -p.moldWall]);
+  const base = disk(rMax, p.moldWall, -p.moldWall);
 
-  // outer shell: tube hugging the pot outside, open at the pot base (pour side)
-  const shell = Manifold.cylinder(H, rMax, rMax, p.segments).subtract(outer);
-  const n = p.wedges, R = rMax * 2, wedges = [];
+  // Seam-local frame: x = out from the shell's outer surface, y = across the seam (positive = into the wedge
+  // after the seam), z = up. `follow` extrudes a 2D (x, y) section up the whole wedge and bends it to the shell
+  // profile, so ribs, joints and bolt holes all follow the taper.
+  const follow = cs => Manifold.union(prof.slice(1).map(([, zb], i) => {
+    const za = prof[i][1];
+    return cs.extrude(zb - za).translate([0, 0, za]).warp(v => { v[0] += rOut(v[2]); });
+  }));
+  const atSeam = (m, a) => m.rotate([0, 0, a * 180 / Math.PI]);
+  const g = p.gap / 2, c = p.gap;
+
+  // clamp ribs sized to the pot (small pots, small clamps); room for M5 bolts 2 hole widths in from the edge
+  const ribD = Math.min(30, Math.max(p.bolts ? 26 : 14, rMax * 0.2)), ribT = Math.max(6, ribD / 2.5);
+  const round = Math.min(2, ribT / 3), fillet = Math.min(4, ribT / 2);
+  const boltX = ribD - 11, jointX = p.bolts ? (boltX - 2.75) / 2 : ribD * 0.4;
+  const jw = Math.min(8, p.bolts ? (boltX - 2.75 - 2) : ribD * 0.5), jh = jw * 0.35 + 2 * g; // tongue width, height
+  // rib section for the side y >= g: rounded outer corners, plus a root fillet into the shell
+  // The shell's outer surface curves away from the seam plane: in this frame it is a circle of radius rS centred
+  // at (-rS, 0). The root fillet is tangent to both the rib's side (y = y0) and that circle, so it blends in.
+  // ponytail: one radius (the smallest) for the whole height; on wider parts the fillet foot sits a hair inside the wall
+  const rS = Math.min(...prof.map(q => q[0])), y0 = g + ribT;
+  const fx = Math.sqrt((rS + fillet) ** 2 - (y0 + fillet) ** 2) - rS, fy = y0 + fillet; // fillet centre
+  const foot = [-rS + rS * (fx + rS) / (rS + fillet), rS * fy / (rS + fillet)]; // tangent point on the wall
+  const sag = rS - Math.sqrt(rS ** 2 - y0 ** 2) + 1; // rib root reaches this far into the wall (the pot is trimmed after)
+  const ribSection = CrossSection.square([ribD + sag - 2 * round, ribT - 2 * round]).translate([-sag + round, g + round]).offset(round, 'Round')
+    .add(CrossSection.square([ribD / 2 + sag, ribT]).translate([-sag, g])) // square root end, only the outer corners are rounded
+    .add(new CrossSection([[[-sag, y0], [fx, y0], [fx, fy], foot, [foot[0] - p.moldWall, foot[1]], [-sag - p.moldWall, y0]]], 'NonZero')
+      .subtract(CrossSection.circle(fillet, 48).translate([fx, fy])));
+  // beveled tongue (45° sides) standing on the y = g face and pointing into the neighbour; groove = tongue + clearance
+  const trap = (yBase, yTip, wBase, wTip) => new CrossSection([[[jointX - wBase / 2, yBase], [jointX + wBase / 2, yBase], [jointX + wTip / 2, yTip], [jointX - wTip / 2, yTip]]], 'NonZero');
+  const tongue = trap(g + 0.5, g - jh, jw + 1, jw - 2 * jh); // starts 0.5 inside the rib so it fuses
+  const groove = trap(-g + 1, g - jh - c, jw - 2 * (2 * g - 1) + 2 * c, jw - 2 * jh); // overshoots the face by 1 so the cut is clean
+  const ribA = follow(ribSection), ribB = ribA.mirror([0, 1, 0]);
+  const tongueM = follow(tongue), grooveM = follow(groove);
+  const bolt = (y0, y1) => Manifold.union([H / 6, H / 2, 5 * H / 6].map(z =>
+    Manifold.cylinder(y1 - y0, 2.75, 2.75, 24).rotate([-90, 0, 0]).translate([rOut(z) + boltX, y0, z])));
+  const bolts = bolt(-g - ribT - 1, g + ribT + 1);
+
+  const shell = new CrossSection([[[0, 0], ...prof, [0, H]]]).revolve(p.segments).subtract(outer);
+  const n = p.wedges, R = (rMax + ribD) * 2, wedges = [];
   for (let i = 0; i < n; i++) {
-    const a0 = (i / n) * 2 * Math.PI, a1 = ((i + 1) / n) * 2 * Math.PI, pts = [[0, 0]];
-    for (let k = 0; k <= 16; k++) { const a = a0 + (a1 - a0) * k / 16; pts.push([R * Math.cos(a), R * Math.sin(a)]); }
-    const sector = new CrossSection([pts]).extrude(H + 2).translate([0, 0, -1]);
-    wedges.push(shell.intersect(sector));
+    const a0 = (i / n) * 2 * Math.PI, a1 = ((i + 1) / n) * 2 * Math.PI, half = (a1 - a0) / 2;
+    // sector shrunk by g on each seam: corner sits on the bisector at g / sin(half)
+    const k = g / Math.sin(half), pts = [[k * Math.cos(a0 + half), k * Math.sin(a0 + half)]];
+    const edge = (a, s) => [R * Math.cos(a) - s * g * Math.sin(a), R * Math.sin(a) + s * g * Math.cos(a)];
+    pts.push(edge(a0, 1));
+    for (let q = 1; q < 16; q++) { const a = a0 + (a1 - a0) * q / 16; pts.push([R * Math.cos(a), R * Math.sin(a)]); }
+    pts.push(edge(a1, -1));
+    let w = shell.intersect(new CrossSection([pts]).extrude(H + 2).translate([0, 0, -1]));
+    // rib + tongue on the seam at a0, rib + groove on the seam at a1 (the next wedge's tongue lands in it)
+    w = w.add(atSeam(ribA.add(tongueM), a0)).add(atSeam(ribB, a1)).subtract(atSeam(grooveM, a1));
+    if (p.bolts) w = w.subtract(atSeam(bolts, a0)).subtract(atSeam(bolts, a1));
+    wedges.push(w.subtract(outer));
   }
-  return { pot, core, base, wedges, rMax };
+
+  // bed check: each part's footprint as printed (wedges turned to face +x, everything standing upright)
+  const warnings = [], fits = (name, m) => {
+    const { min, max } = m.boundingBox(), w = Math.ceil(max[0] - min[0]), d = Math.ceil(max[1] - min[1]);
+    if (Math.max(w, d) > p.bed) warnings.push(`${name} is ${w} × ${d} mm, bigger than your ${p.bed} mm bed`);
+  };
+  fits('Core', core); fits('Base plate', base);
+  fits('Each wedge', wedges[0].rotate([0, 0, -180 / n]));
+  if (warnings.length) warnings.push('Try more wedges. Splitting the core and base plate comes later.');
+  return { pot, core, base, wedges, rMax, warnings };
 }
