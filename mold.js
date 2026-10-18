@@ -220,12 +220,12 @@ export function build(wasm, p, show = { core: true, wedges: true }) {
   const bolts = bolt(-g - ribT - 1, g + ribT + 1);
 
   // screw flange round the bottom: the wedges screw down to a board (ply, melamine), which closes the bottom.
-  // 45° chamfer where it meets the wall so it prints upright without supports.
+  // It reaches out as far as the seam ribs, with a 45° chamfer where it meets the wall so it prints upright.
   // ponytail: fixed for ~4 mm wood screws; make it a setting if people use other screws
-  const fT = 5, fW = 18, fCh = 3, screwR = 2.25, rF = bodyO(0) + fW;
+  const fT = 5, fCh = 3, screwR = 2.25, screwTilt = 15, rF = bodyO(0) + ribD;
   const flange = rev([[bodyO(0) - 1, 0], [rF, 0], [rF, fT], [bodyO(fT) + fCh, fT], [bodyO(fT + fCh), fT + fCh], [bodyO(fT + fCh) - 1, fT + fCh]]);
   const shell = new CrossSection([[[0, 0], ...prof, [0, H]]]).revolve(p.segments).add(flange).subtract(outer);
-  const rScrew = bodyO(0) + fCh + 7, screws = Math.ceil(rScrew * 2 * Math.PI / p.wedges / 80); // per wedge, ≤ 80 mm apart
+  const rScrew = bodyO(0) + (fCh + ribD) / 2, screws = Math.ceil(rScrew * 2 * Math.PI / p.wedges / 80); // per wedge, ≤ 80 mm apart
   const n = p.wedges, R = (rMax + ribD) * 2, wedges = [];
   for (let i = 0; i < n; i++) {
     const a0 = (i / n) * 2 * Math.PI, a1 = ((i + 1) / n) * 2 * Math.PI, half = (a1 - a0) / 2;
@@ -239,10 +239,10 @@ export function build(wasm, p, show = { core: true, wedges: true }) {
     // rib + tongue on the seam at a0, rib + groove on the seam at a1 (the next wedge's tongue lands in it)
     w = w.add(atSeam(ribA.add(tongueM), a0)).add(atSeam(ribB, a1)).subtract(atSeam(grooveM, a1));
     if (p.bolts) w = w.subtract(atSeam(bolts, a0)).subtract(atSeam(bolts, a1));
-    // screw holes spread evenly along the flange, clear of the seam ribs
+    // screw holes spread evenly along the flange, clear of the seam ribs, tilted outward so the driver clears the wall
     for (let j = 0; j < screws; j++) {
-      const a = a0 + (a1 - a0) * (j + 0.5) / screws;
-      w = w.subtract(Manifold.cylinder(fT + 2, screwR, screwR, 24).translate([rScrew * Math.cos(a), rScrew * Math.sin(a), -1]));
+      const a = (a0 + (a1 - a0) * (j + 0.5) / screws) * 180 / Math.PI;
+      w = w.subtract(Manifold.cylinder(fT + 4, screwR, screwR, 24, true).rotate([0, screwTilt, 0]).translate([rScrew, 0, fT / 2]).rotate([0, 0, a]));
     }
     wedges.push(w.subtract(outer));
   }
