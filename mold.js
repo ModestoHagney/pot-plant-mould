@@ -4,7 +4,7 @@
 // which sits on the wedges, and concrete is poured through the gaps in the cap above the pot's rim.
 export const defaults = {
   height: 120, topDia: 140, bottomDia: 100, wall: 10, base: 12,
-  lipHeight: 15, lipWidth: 5, drainDia: 15, moldWall: 4, wedges: 4, segments: 96,
+  lipHeight: 0, lipWidth: 0, drainDia: 15, moldWall: 4, wedges: 4, segments: 96,
   pattern: 'none', patternDepth: 3, patternCount: 24, patternPitch: 20, seed: 1,
   gap: 0.2, draft: 1, bed: 256, bolts: false,
 };
