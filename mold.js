@@ -5,20 +5,93 @@
 export const defaults = {
   height: 120, topDia: 140, bottomDia: 100, wall: 10, base: 12,
   lipHeight: 15, lipWidth: 5, drainDia: 15, moldWall: 4, wedges: 4, segments: 96,
-  pattern: 'none', patternDepth: 3, patternCount: 24, patternPitch: 20,
+  pattern: 'none', patternDepth: 3, patternCount: 24, patternPitch: 20, seed: 1,
   gap: 0.2, draft: 1, bed: 256, bolts: false,
 };
 
-// Outer-face patterns: (angle, height, params) -> 0..1, scaled by patternDepth and pushed outward only,
-// so the wall never gets thinner than `wall`.
+// Outer-face patterns: (params, top of the patterned band, smallest pot radius) -> (angle, height) -> 0..1,
+// scaled by patternDepth and pushed outward only, so the wall never gets thinner than `wall`.
 const fract = x => x - Math.floor(x);
 export const patterns = {
-  none: () => 0,
-  ribs: (a, z, p) => (1 + Math.cos(p.patternCount * a)) / 2,
-  bands: (a, z, p) => (1 + Math.cos(2 * Math.PI * z / p.patternPitch)) / 2,
-  waves: (a, z, p) => (1 + Math.cos(p.patternCount * a + 2 * Math.sin(2 * Math.PI * z / p.patternPitch))) / 2,
-  diamonds: (a, z, p) => 1 - Math.abs(fract(p.patternCount * a / (2 * Math.PI)) - 0.5) - Math.abs(fract(z / p.patternPitch) - 0.5),
+  none: () => () => 0,
+  ribs: p => a => (1 + Math.cos(p.patternCount * a)) / 2,
+  bands: p => (a, z) => (1 + Math.cos(2 * Math.PI * z / p.patternPitch)) / 2,
+  waves: p => (a, z) => (1 + Math.cos(p.patternCount * a + 2 * Math.sin(2 * Math.PI * z / p.patternPitch))) / 2,
+  diamonds: p => (a, z) => 1 - Math.abs(fract(p.patternCount * a / (2 * Math.PI)) - 0.5) - Math.abs(fract(z / p.patternPitch) - 0.5),
+  lowpoly: lowPoly,
 };
+
+// seeded random numbers (mulberry32): the same seed always gives the same pot, so preview and export match
+const rng = s => () => {
+  s = s + 0x6D2B79F5 | 0;
+  let t = Math.imul(s ^ s >>> 15, 1 | s);
+  t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t;
+  return ((t ^ t >>> 14) >>> 0) / 4294967296;
+};
+
+// Can a wedge pull straight out along its middle line off a surface leaning `k` (= dr/dθ / r) at angle `a`?
+// The surface normal must face the pull by at least the draft (or half as much as the smooth pot does, right at a
+// 2-wedge seam where even a plain pot has no draft).
+const pullsOff = (a, k, n, m) => {
+  const w = 2 * Math.PI / n, d = a - (Math.floor(a / w) + 0.5) * w, c = Math.cos(d);
+  return c + k * Math.sin(d) >= Math.min(m, c / 2);
+};
+
+// Low poly: a jittered grid of points over the side (angle × height), each at a random height, split into
+// triangles with random diagonals. A column of points sits on every wedge seam so no facet spans two wedges,
+// then facets that a wedge can't pull off are flattened until it can.
+function lowPoly(p, lipZ, r0) {
+  const rand = rng(p.seed), n = p.wedges, per = Math.max(1, Math.round(p.patternCount / n)), nc = per * n;
+  const nr = Math.max(1, Math.round(lipZ / p.patternPitch)), da = 2 * Math.PI / nc, dz = lipZ / nr, J = 0.4;
+  const id = (i, j) => (i % nc) * (nr + 1) + j, A = [], Z = [], h = [];
+  for (let i = 0; i < nc; i++) for (let j = 0; j <= nr; j++) {
+    A.push((i + (i % per ? (rand() - 0.5) * 2 * J : 0)) * da); // seam columns stay put
+    Z.push((j + (j % nr ? (rand() - 0.5) * 2 * J : 0)) * dz); // top and bottom rows stay put
+    h.push(rand());
+  }
+  // triangle = 3 corners [point index, angle, height]; the last column wraps back to the first at +2π
+  const corner = (i, j) => [id(i, j), A[id(i, j)] + (i >= nc ? 2 * Math.PI : 0), Z[id(i, j)]];
+  const area = (u, v, w) => (v[1] - u[1]) * (w[2] - u[2]) - (w[1] - u[1]) * (v[2] - u[2]);
+  const cells = [];
+  for (let i = 0; i < nc; i++) for (let j = 0; j < nr; j++) {
+    const [a, b, c, d] = [corner(i, j), corner(i + 1, j), corner(i + 1, j + 1), corner(i, j + 1)];
+    let t = [[a, b, c], [a, c, d]], u = [[a, b, d], [b, c, d]];
+    if (rand() < 0.5) [t, u] = [u, t];
+    // jitter < 0.5 keeps the quad simple, so if one diagonal folds a triangle over, the other doesn't
+    cells.push(t.every(q => area(...q) > 1e-9) ? t : u);
+  }
+  const m = Math.sin(p.draft * Math.PI / 180);
+  const ok = ([u, v, w]) => {
+    const det = area(u, v, w), [hu, hv, hw] = [h[u[0]], h[v[0]], h[w[0]]];
+    const k = p.patternDepth * ((hv - hu) * (w[2] - u[2]) - (hw - hu) * (v[2] - u[2])) / det / r0;
+    const mid = (u[1] + v[1] + w[1]) / 3, side = 2 * Math.PI / n, seam = Math.floor(mid / side) * side;
+    // check at the corners, clamped into this facet's wedge (the corner on the seam counts as this wedge's)
+    return [u, v, w].every(q => pullsOff(Math.min(seam + side - 1e-9, Math.max(seam, q[1])), k, n, m));
+  };
+  const tris = cells.flat();
+  for (let pass = 0; pass < 200; pass++) {
+    const bad = tris.filter(t => !ok(t));
+    if (!bad.length) break;
+    for (const t of bad) {
+      const mean = t.reduce((s, q) => s + h[q[0]], 0) / 3;
+      for (const q of t) h[q[0]] = mean + (h[q[0]] - mean) * 0.8;
+    }
+  }
+  return (a, z) => {
+    a = ((a % (2 * Math.PI)) + 2 * Math.PI) % (2 * Math.PI);
+    const ci = Math.floor(a / da), cj = Math.min(nr - 1, Math.max(0, Math.floor(z / dz)));
+    for (let di = -1; di <= 1; di++) for (let dj = -1; dj <= 1; dj++) {
+      const i = ci + di, j = cj + dj, wi = (i + nc) % nc;
+      if (j < 0 || j >= nr) continue;
+      const q = [0, a + (wi - i) * da, z]; // query in the cell's own angle range when it wraps
+      for (const [u, v, w] of cells[wi * nr + j]) {
+        const s = area(u, v, w), b1 = area(q, v, w) / s, b2 = area(u, q, w) / s, b3 = 1 - b1 - b2;
+        if (b1 > -1e-7 && b2 > -1e-7 && b3 > -1e-7) return b1 * h[u[0]] + b2 * h[v[0]] + b3 * h[w[0]];
+      }
+    }
+    return 0; // ponytail: unreachable for points on the side; a gap here would show as a dent
+  };
+}
 
 export function build(wasm, p) {
   const { Manifold, CrossSection } = wasm;
@@ -32,23 +105,33 @@ export function build(wasm, p) {
   // radius of the pot's outer wall at height z (below the lip)
   const rAt = z => rb + (rt - rb) * z / H;
 
-  const fn = patterns[p.pattern];
-  if (!fn) throw new Error(`Unknown pattern ${p.pattern}`);
+  if (!patterns[p.pattern]) throw new Error(`Unknown pattern ${p.pattern}`);
   let outer;
+  const warnings = [];
   if (p.pattern === 'none' || !p.patternDepth) {
     outer = rev([[0, 0], [rb, 0], [rAt(lipZ), lipZ], [rLip, lipZ], [rLip, H], [0, H]]);
   } else {
+    const fn = patterns[p.pattern](p, lipZ, Math.min(rb, rAt(lipZ)));
+    const fade = Math.min(4, lipZ / 4), ramp = t => Math.min(1, Math.max(0, t / fade));
+    const dAt = (a, z) => p.patternDepth * fn(a, z) * ramp(z) * ramp(lipZ - z);
     // dense side profile + enough segments to resolve the pattern, then push side vertices outward
     const dz = Math.min(1, p.patternPitch / 12), side = [];
     for (let z = 0; z < lipZ; z += dz) side.push([rAt(z), z]);
     const segs = Math.min(720, Math.max(p.segments, p.patternCount * 12));
-    const fade = Math.min(4, lipZ / 4), ramp = t => Math.min(1, Math.max(0, t / fade));
     outer = new CrossSection([[[0, 0], ...side, [rAt(lipZ), lipZ], [rLip, lipZ], [rLip, H], [0, H]]]).revolve(segs).warp(v => {
       const r = Math.hypot(v[0], v[1]), z = v[2];
       if (z >= lipZ || Math.abs(r - rAt(z)) > 1e-3) return; // only the body's outer face
-      const d = p.patternDepth * fn(Math.atan2(v[1], v[0]), z, p) * ramp(z) * ramp(lipZ - z);
+      const d = dAt(Math.atan2(v[1], v[0]), z);
       v[0] *= (r + d) / r; v[1] *= (r + d) / r;
     });
+    // demold check: sample the side and make sure every wedge can pull straight off its part of the pattern
+    const m = Math.sin(p.draft * Math.PI / 180), e = 1e-4;
+    let locks = false;
+    for (let i = 0; i < segs && !locks; i++) for (let z = lipZ / 80; z < lipZ && !locks; z += lipZ / 40) {
+      const a = (i + 0.5) / segs * 2 * Math.PI;
+      locks = !pullsOff(a, (dAt(a + e, z) - dAt(a - e, z)) / (2 * e) / (rAt(z) + dAt(a, z)), p.wedges, m);
+    }
+    if (locks) warnings.push('The pattern leans too steeply near a seam and may lock the wedges on. Lower depth or count, or add wedges');
   }
   // cavity: wall measured horizontally, so it follows the outer taper; narrowed at the bottom if needed so the
   // core always has at least `draft` degrees of taper to pull out upward
@@ -145,12 +228,12 @@ export function build(wasm, p) {
   }
 
   // bed check: each part's footprint as printed (wedges turned to face +x, everything standing upright)
-  const warnings = [], fits = (name, m) => {
+  const before = warnings.length, fits = (name, m) => {
     const { min, max } = m.boundingBox(), w = Math.ceil(max[0] - min[0]), d = Math.ceil(max[1] - min[1]);
     if (Math.max(w, d) > p.bed) warnings.push(`${name} is ${w} × ${d} mm, bigger than your ${p.bed} mm bed`);
   };
   fits('Core', core);
   fits('Each wedge', wedges[0].rotate([0, 0, -180 / n]));
-  if (warnings.length) warnings.push('Try more wedges. Splitting the core comes later.');
+  if (warnings.length > before) warnings.push('Try more wedges. Splitting the core comes later.');
   return { pot, core, wedges, screws, rMax, warnings };
 }
