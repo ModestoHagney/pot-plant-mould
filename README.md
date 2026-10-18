@@ -12,4 +12,4 @@ Serve the folder and open it, e.g. `python3 -m http.server`, then visit http://l
 
 ## Casting
 
-Cast upside down: the core's cap sits on the table, the outer wedges stand on the cap, pour into the open pot base.
+Cast upright: stand the wedges on the base plate, pour the concrete in, then push the core down until its cap sits on the wedges. Excess concrete and air escape through the vent holes in the cap.
