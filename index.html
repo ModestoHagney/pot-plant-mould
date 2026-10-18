@@ -52,27 +52,29 @@ import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import Module from 'manifold-3d';
 import { zipSync, strToU8 } from 'fflate';
-import { build, defaults } from './mold.js';
+import { build, defaults, patterns } from './mold.js';
 
 const fields = [
   ['Pot', [['height', 'Height', 40, 400], ['topDia', 'Top diameter', 40, 400], ['bottomDia', 'Bottom diameter', 40, 400],
     ['wall', 'Wall thickness', 4, 40], ['base', 'Base thickness', 4, 40], ['lipHeight', 'Lip height', 0, 60],
     ['lipWidth', 'Lip width', 0, 30], ['drainDia', 'Drain hole', 0, 40]]],
+  ['Pattern', [['patternDepth', 'Depth', 0, 10], ['patternCount', 'Count around', 4, 60], ['patternPitch', 'Vertical pitch', 5, 60]]],
   ['Mold', [['wedges', 'Outer wedges', 2, 8], ['moldWall', 'Mold wall', 2, 10]]],
 ];
 const form = document.getElementById('f');
 for (const [title, list] of fields) {
   form.insertAdjacentHTML('beforeend', `<h2>${title}</h2>`);
+  if (title === 'Pattern') form.insertAdjacentHTML('beforeend', `<label>Style<select name="pattern">${Object.keys(patterns).map(k => `<option>${k}</option>`).join('')}</select></label>`);
   for (const [k, label, min, max] of list)
-    form.insertAdjacentHTML('beforeend', `<label>${label}${k === "wedges" ? "" : " (mm)"}<input type="number" name="${k}" min="${min}" max="${max}" value="${defaults[k]}">
+    form.insertAdjacentHTML('beforeend', `<label>${label}${k === "wedges" || k === "patternCount" ? "" : " (mm)"}<input type="number" name="${k}" min="${min}" max="${max}" value="${defaults[k]}">
       <input type="range" data-k="${k}" min="${min}" max="${max}" value="${defaults[k]}"></label>`);
 }
 form.addEventListener('input', e => {
   const k = e.target.name || e.target.dataset.k;
-  form.querySelector(`[name=${k}]`).value = form.querySelector(`[data-k=${k}]`).value = e.target.value;
+  if (e.target.dataset.k || e.target.type === 'number') form.querySelector(`[name=${k}]`).value = form.querySelector(`[data-k=${k}]`).value = e.target.value;
   schedule();
 });
-const params = () => ({ ...defaults, ...Object.fromEntries([...new FormData(form)].map(([k, v]) => [k, +v])) });
+const params = () => ({ ...defaults, ...Object.fromEntries([...new FormData(form)].map(([k, v]) => [k, isNaN(v) ? v : +v])) });
 
 // three.js scene
 const view = document.getElementById('view');
