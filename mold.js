@@ -93,6 +93,21 @@ function lowPoly(p, lipZ, r0) {
   };
 }
 
+// Manifold objects live in WASM memory, which JS never garbage collects: every rebuild leaked ~175 MB until the
+// tab crashed. trackMemory wraps every call that makes a new Manifold or CrossSection; the returned free() deletes
+// everything made since the last free(). (ponytail: `new CrossSection` isn't tracked; those are small.)
+export function trackMemory(wasm) {
+  const made = [], track = r => { if (Array.isArray(r)) r.forEach(track); else if (typeof r?.delete === 'function') made.push(r); };
+  const probes = [wasm.Manifold.cube([1, 1, 1]), wasm.CrossSection.square([1, 1])];
+  for (const o of [wasm.Manifold, wasm.CrossSection, ...probes.map(Object.getPrototypeOf)]) for (const k of Object.getOwnPropertyNames(o)) {
+    const f = Object.getOwnPropertyDescriptor(o, k).value;
+    if (typeof f !== 'function' || k === 'delete' || k === 'constructor') continue;
+    o[k] = function (...a) { const r = f.apply(this, a); track(r); return r; };
+  }
+  probes.forEach(m => m.delete());
+  return () => { for (const m of made.splice(0)) if (!m.isDeleted()) m.delete(); };
+}
+
 // `show` = the parts that will be used. Manifold only computes a part when its mesh is read, so the bed check
 // skips hidden parts to keep them uncomputed.
 export function build(wasm, p, show = { core: true, wedges: true }) {
@@ -114,15 +129,18 @@ export function build(wasm, p, show = { core: true, wedges: true }) {
     outer = rev([[0, 0], [rb, 0], [rAt(lipZ), lipZ], [rLip, lipZ], [rLip, H], [0, H]]);
   } else {
     const fn = patterns[p.pattern](p, lipZ, Math.min(rb, rAt(lipZ)));
-    const fade = Math.min(4, lipZ / 4), ramp = t => Math.min(1, Math.max(0, t / fade));
-    const dAt = (a, z) => p.patternDepth * fn(a, z) * ramp(z) * ramp(lipZ - z);
+    // with a lip, the pattern fades out over the last few mm so it meets the lip's underside; without one it runs
+    // right to the rim and the base
+    const lip = p.lipHeight > 0, fade = Math.min(4, lipZ / 4), ramp = t => Math.min(1, Math.max(0, t / fade));
+    const dAt = (a, z) => p.patternDepth * fn(a, z) * (lip ? ramp(lipZ - z) : 1);
     // dense side profile + enough segments to resolve the pattern, then push side vertices outward
     const dz = Math.min(1, p.patternPitch / 12), side = [];
     for (let z = 0; z < lipZ; z += dz) side.push([rAt(z), z]);
     const segs = Math.min(720, Math.max(p.segments, p.patternCount * 12));
-    outer = new CrossSection([[[0, 0], ...side, [rAt(lipZ), lipZ], [rLip, lipZ], [rLip, H], [0, H]]]).revolve(segs).warp(v => {
+    const top = lip ? [[rAt(lipZ), lipZ], [rLip, lipZ], [rLip, H], [0, H]] : [[rt, H], [0, H]];
+    outer = new CrossSection([[[0, 0], ...side, ...top]]).revolve(segs).warp(v => {
       const r = Math.hypot(v[0], v[1]), z = v[2];
-      if (z >= lipZ || Math.abs(r - rAt(z)) > 1e-3) return; // only the body's outer face
+      if ((lip && z >= lipZ) || Math.abs(r - rAt(z)) > 1e-3) return; // only the body's outer face
       const d = dAt(Math.atan2(v[1], v[0]), z);
       v[0] *= (r + d) / r; v[1] *= (r + d) / r;
     });

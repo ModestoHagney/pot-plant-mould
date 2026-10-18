@@ -148,7 +148,7 @@ import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import Module from 'manifold-3d';
 import { zipSync, strToU8 } from 'fflate';
-import { build, defaults, patterns } from './mold.js';
+import { build, defaults, patterns, trackMemory } from './mold.js';
 
 // theme: data-theme on <html>, none = match system
 const root = document.documentElement;
@@ -280,6 +280,7 @@ addEventListener('resize', resize); resize();
 renderer.setAnimationLoop(() => { controls.update(); renderer.render(scene, camera); });
 
 const wasm = await Module(); wasm.setup();
+const free = trackMemory(wasm);
 let parts = null, timer;
 const toGeom = m => {
   const mesh = m.getMesh(), g = new THREE.BufferGeometry();
@@ -300,11 +301,13 @@ function layout() {
 let built = new Set(); // parts meshed by the last rebuild; hidden parts are skipped until switched on
 function regen() {
   const err = document.getElementById('err'), warn = document.getElementById('warn'), on = shown();
+  free(); parts = null; // last build's solids; the preview already holds its own copies
   try {
     parts = build(wasm, params(), { core: on.has('core'), wedges: on.has('wedges') });
     err.textContent = '';
     warn.textContent = parts.warnings.join('. ');
   } catch (e) { err.textContent = e.message; return; }
+  for (const o of group.children) { o.geometry.dispose(); o.material.dispose(); }
   group.clear();
   const { pot, core, wedges } = parts, n = wedges.length;
   built = on;

@@ -1,7 +1,9 @@
 import Module from 'manifold-3d';
-import { build, defaults, patterns } from './mold.js';
+import { build, defaults, patterns, trackMemory } from './mold.js';
 const wasm = await Module(); wasm.setup();
+const free = trackMemory(wasm); // freed before each build, as the app does
 for (const [n, pattern, extra] of [[2, 'none', { bolts: true }], [3, 'ribs', { lipWidth: 0 }], [6, 'diamonds', { bolts: true, moldWall: 15 }], [4, 'lowpoly', { lipHeight: 0, lipWidth: 0 }], ...Object.keys(patterns).map(k => [4, k])]) {
+  free();
   const { pot, core, wedges, screws } = build(wasm, { ...defaults, wedges: n, pattern, ...extra });
   if (pot.status() !== 'NoError' || pot.genus() !== 1) throw new Error(`bad pot for ${pattern}`);
   const ws = wedges.reduce((a, w) => a + w.volume(), 0);
