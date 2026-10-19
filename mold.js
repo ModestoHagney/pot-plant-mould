@@ -1,7 +1,7 @@
 // Pure geometry: params (mm) -> Manifold solids. Pot axis is +Z, base at z=0.
 // Casting is done upright: wedges are screwed down to a board through their bottom flange and clamped shut, the
-// board forms the pot's underside, the core hangs from its cap
-// which sits on the wedges, and concrete is poured through the gaps in the cap above the pot's rim.
+// board forms the pot's underside. The hollow core's cap spokes are screwed down onto the seam ribs and its drain pin
+// is screwed up through the board, and concrete is poured through the gaps in the cap above the pot's rim.
 export const defaults = {
   height: 120, topDia: 140, bottomDia: 100, wall: 10, base: 12,
   lipHeight: 0, lipWidth: 0, drainDia: 15, moldWall: 4, wedges: 4, segments: 96,
@@ -158,7 +158,9 @@ export function build(wasm, p, show = { core: true, wedges: true }) {
   const rInTop = rt - p.wall, rInBot = Math.min(rAt(p.base) - p.wall, rInTop - (H - p.base) * Math.tan(p.draft * Math.PI / 180));
   if (rInBot <= p.drainDia / 2) throw new Error('Draft angle leaves no room at the bottom of the core');
   const cavityTo = top => rev([[0, p.base], [rInBot, p.base], [rInTop, top], [0, top]]);
-  const drain = Manifold.cylinder(p.base + 2, p.drainDia / 2, p.drainDia / 2, p.segments).translate([0, 0, -1]);
+  // drain pin (a zero-radius cylinder is invalid and would empty every part it touches)
+  const pin = h => p.drainDia > 0 ? Manifold.cylinder(h, p.drainDia / 2, p.drainDia / 2, p.segments) : Manifold.union([]);
+  const drain = pin(p.base + 2).translate([0, 0, -1]);
   const pot = outer.subtract(cavityTo(H)).subtract(drain);
 
   // outer wedges: constant wall following the pot's taper (pattern depth included), stepping out for the lip
@@ -174,13 +176,6 @@ export function build(wasm, p, show = { core: true, wedges: true }) {
     return prof.at(-1)[0];
   };
   const disk = (r, h, z) => Manifold.cylinder(h, r, r, p.segments).translate([0, 0, z]);
-
-  // core = cavity + drain pin + cap. The cap sits on the wedges; pour gaps over the rim leave 4 spokes.
-  const spoke = Math.max(8, p.wall);
-  const gaps = disk(rLip, p.moldWall + 2, H - 1).subtract(disk(rInTop, p.moldWall + 4, H - 2))
-    .subtract(Manifold.union([0, 90].map(d => Manifold.cube([2 * rMax + 2, spoke, p.moldWall + 6], true).translate([0, 0, H]).rotate([0, 0, d + 45]))));
-  const core = cavityTo(H + 0.01).add(Manifold.cylinder(p.base, p.drainDia / 2, p.drainDia / 2, p.segments))
-    .add(disk(rMax, p.moldWall, H).subtract(gaps));
 
   // Seam-local frame: x = out from the shell's outer surface, y = across the seam (positive = into the wedge
   // after the seam), z = up. `follow` extrudes a 2D (x, y) section up the whole wedge and bends it to the shell
@@ -214,15 +209,35 @@ export function build(wasm, p, show = { core: true, wedges: true }) {
   const tongue = trap(g + 0.5, g - jh, jw + 1, jw - 2 * jh); // starts 0.5 inside the rib so it fuses
   const groove = trap(-g + 1, g - jh - c, jw - 2 * (2 * g - 1) + 2 * c, jw - 2 * jh); // overshoots the face by 1 so the cut is clean
   const ribA = follow(ribSection), ribB = ribA.mirror([0, 1, 0]);
-  const tongueM = follow(tongue), grooveM = follow(groove);
+  // the joint stops short of the top, leaving room for the screw that holds the core's spoke down (see core)
+  const seamScrewDepth = Math.min(16, H / 3), below = Manifold.cube([1e4, 1e4, H - seamScrewDepth - 1]).translate([-5e3, -5e3, -1]);
+  const tongueM = follow(tongue).intersect(below), grooveM = follow(groove).intersect(below);
   const bolt = (y0, y1) => Manifold.union([H / 6, H / 2, 5 * H / 6].map(z =>
     Manifold.cylinder(y1 - y0, 2.75, 2.75, 24).rotate([-90, 0, 0]).translate([rOut(z) + boltX, y0, z])));
   const bolts = bolt(-g - ribT - 1, g + ribT + 1);
 
+  // core: a hollow shell (mould wall thick) open at the top, so it can be filled with sand for weight. Inside, the
+  // floor is a 45° funnel so the core prints cap-down without supports. The cap has one spoke per seam that crosses
+  // the pour gap and lands on that seam's rib pair, where a screw down the seam holds it; a screw up through the
+  // board into the drain pin holds the bottom. Together they stop the core floating.
+  const tc = p.moldWall, k = (rInTop - rInBot) / (H - p.base), zF0 = p.base + tc; // k: cavity taper, zF0: funnel tip
+  const zF = (zF0 + rInBot - tc - k * p.base) / (1 - k), rH = z => rInBot + k * (z - p.base) - tc; // funnel meets wall at zF
+  const spoke = 2 * (g + ribT), screwPilot = 1.6, screwR = 2.25; // ~4 mm wood screws
+  const spokes = Manifold.union(Array.from({ length: p.wedges }, (_, i) =>
+    atSeam(Manifold.cube([rMax + ribD, spoke, p.moldWall]).translate([0, -spoke / 2, H]), i / p.wedges * 2 * Math.PI)));
+  let core = cavityTo(H + 0.01).add(pin(p.base))
+    .add(disk(rInTop, p.moldWall, H)).add(disk(rMax, p.moldWall, H).subtract(disk(rLip, p.moldWall + 2, H - 1))).add(spokes);
+  if (zF < H - tc && rH(zF) > 2) core = core.subtract(rev([[0, zF0], [rH(zF), zF], [rH(H), H], [rH(H), H + tc + 1], [0, H + tc + 1]]));
+  if (p.drainDia / 2 > screwPilot + 1.5) // pilot for a screw up through the board
+    core = core.subtract(Manifold.cylinder(p.base + tc - 0.5, screwPilot, screwPilot, 24).translate([0, 0, -1]));
+  const seamScrew = Manifold.cylinder(seamScrewDepth + 1, screwPilot, screwPilot, 24).translate([rMax + jointX, 0, H - seamScrewDepth]);
+  const spokeHole = Manifold.cylinder(p.moldWall + 2, screwR, screwR, 24).translate([rMax + jointX, 0, H - 1]);
+  for (let i = 0; i < p.wedges; i++) core = core.subtract(atSeam(spokeHole, i / p.wedges * 2 * Math.PI));
+
   // screw flange round the bottom: the wedges screw down to a board (ply, melamine), which closes the bottom.
   // It reaches out as far as the seam ribs, and its top slopes down and out so a driver clears the wall.
   // ponytail: fixed for ~4 mm wood screws; make it a setting if people use other screws
-  const fT = 4, screwR = 2.25, screwTilt = 15, slope = Math.tan(screwTilt * Math.PI / 180), rF = bodyO(0) + ribD;
+  const fT = 4, screwTilt = 15, slope = Math.tan(screwTilt * Math.PI / 180), rF = bodyO(0) + ribD;
   const fTop = r => fT + (rF - r) * slope; // flange thickness at radius r
   const flange = rev([[bodyO(0) - 1, 0], [rF, 0], [rF, fT], [bodyO(0), fTop(bodyO(0))], [bodyO(0) - 1, fTop(bodyO(0))]]);
   const shell = new CrossSection([[[0, 0], ...prof, [0, H]]]).revolve(p.segments).add(flange).subtract(outer);
@@ -240,6 +255,7 @@ export function build(wasm, p, show = { core: true, wedges: true }) {
     // rib + tongue on the seam at a0, rib + groove on the seam at a1 (the next wedge's tongue lands in it)
     w = w.add(atSeam(ribA.add(tongueM), a0)).add(atSeam(ribB, a1)).subtract(atSeam(grooveM, a1));
     if (p.bolts) w = w.subtract(atSeam(bolts, a0)).subtract(atSeam(bolts, a1));
+    w = w.subtract(atSeam(seamScrew, a0)).subtract(atSeam(seamScrew, a1));
     // screw holes spread evenly along the flange, clear of the seam ribs, square to its sloped top
     for (let j = 0; j < screws; j++) {
       const a = (a0 + (a1 - a0) * (j + 0.5) / screws) * 180 / Math.PI;
