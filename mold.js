@@ -6,7 +6,7 @@ export const defaults = {
   height: 120, topDia: 140, bottomDia: 100, wall: 10, base: 12,
   lipHeight: 0, lipWidth: 0, drainDia: 15, moldWall: 4, wedges: 4, segments: 96,
   pattern: 'none', patternDepth: 3, patternCount: 24, patternPitch: 20, seed: 1,
-  gap: 0.2, draft: 5, bed: 256, bolts: false, sizeBy: 'outside', screw: 4, pilotAdjust: 0, patternFade: 4,
+  gap: 0.2, draft: 5, bed: 256, bolts: false, sizeBy: 'outside', screw: 4, pilotAdjust: 0, headDia: 0, csAngle: 90, patternFade: 4,
   // pot edges: size cut back along each face (0 = sharp)
   edgeStyle: 'fillet', edgeTopOut: 0, edgeTopIn: 0, edgeBotOut: 0, edgeBotIn: 0,
   coreWall: 4, coreFloor: 6, spiderThick: 4, spiderRing: 4, spiderLip: 10, spiderLipThick: 3, spiderRound: 1, spokeFillet: 3,
@@ -150,24 +150,43 @@ export function build(wasm, p, show = { core: true, wedges: true }) {
   const rAt = z => rb + (rt - rb) * z / H;
 
   if (!patterns[p.pattern]) throw new Error(`Unknown pattern ${p.pattern}`);
+  // cavity: wall measured horizontally, so it follows the outer taper; narrowed at the bottom if needed so the
+  // core always has at least `draft` degrees of taper to pull out upward
+  const rInTop = rt - p.wall, rInBot = Math.min(rAt(p.base) - p.wall, rInTop - (H - p.base) * Math.tan(p.draft * Math.PI / 180));
+  const warnings = [];
+  if (rInBot <= p.drainDia / 2) throw new Error('Draft angle leaves no room at the bottom of the core');
+  if (p.holeBot && rInBot < p.holeBot - 0.05)
+    warnings.push(`Core draft narrows the bottom of the hole to ${(2 * rInBot).toFixed(1)} mm. Lower the draft or widen the top`);
+
+  // pot edges, drawn into the outer and cavity profiles; each is capped to leave the face it sits on
+  const fil = p.edgeStyle !== 'chamfer', lip = p.lipHeight > 0, rimW = (lip ? rLip : rt) - rInTop, bot = [rInBot, p.base], top = [rInTop, H];
+  const eTO = Math.min(p.edgeTopOut, rimW * 0.49, lip ? p.lipHeight - 0.1 : lipZ / 2), eBO = Math.min(p.edgeBotOut, rb - p.drainDia / 2 - 0.5, lipZ / 2);
+  const eTI = Math.min(p.edgeTopIn, rimW * 0.49, (H - p.base) / 2), eBI = Math.min(p.edgeBotIn, rInBot - p.drainDia / 2 - 1, (H - p.base) / 2);
+  const up = unit([rb, 0], [rAt(lipZ), lipZ]), botArc = corner([rb, 0], [-1, 0], up, eBO, fil); // bottom face round onto the wall
+  const topArc = lip ? corner([rLip, H], [0, -1], [-1, 0], eTO, fil) : corner([rt, H], [-up[0], -up[1]], [-1, 0], eTO, fil);
+  const sideBot = botArc.at(-1)[1], sideTop = lip ? lipZ : topArc[0][1];
+  const outerPts = side => [[0, 0], ...botArc, ...side, ...(lip ? [[rAt(lipZ), lipZ], [rLip, lipZ]] : []), ...topArc, [0, H]];
+
   let outer;
-  const warnings = [], plain = p.pattern === 'none' || !p.patternDepth;
+  const plain = p.pattern === 'none' || !p.patternDepth;
   const segs = plain ? p.segments : Math.min(720, Math.max(p.segments, p.patternCount * 12));
   if (plain) {
-    outer = rev([[0, 0], [rb, 0], [rAt(lipZ), lipZ], [rLip, lipZ], [rLip, H], [0, H]]);
+    outer = rev(outerPts([]));
   } else {
     const fn = patterns[p.pattern](p, lipZ, Math.min(rb, rAt(lipZ)));
     // with a lip, the pattern fades out over the last few mm so it meets the lip's underside; without one it runs
     // right to the rim and the base
-    const lip = p.lipHeight > 0, fade = Math.min(p.patternFade, lipZ / 4), ramp = t => Math.min(1, Math.max(0, t / fade));
+    const fade = Math.min(p.patternFade, lipZ / 4), ramp = t => Math.min(1, Math.max(0, t / fade));
     const dAt = (a, z) => p.patternDepth * fn(a, z) * (lip ? ramp(lipZ - z) : 1);
-    // dense side profile + enough segments to resolve the pattern, then push side vertices outward
+    // dense side profile + enough segments to resolve the pattern, then push the side and its edge rounds outward,
+    // so a rounded edge carries the pattern instead of cutting it off
     const dz = Math.min(1, p.patternPitch / 12), side = [];
-    for (let z = 0; z < lipZ; z += dz) side.push([rAt(z), z]);
-    const top = lip ? [[rAt(lipZ), lipZ], [rLip, lipZ], [rLip, H], [0, H]] : [[rt, H], [0, H]];
-    outer = new CrossSection([[[0, 0], ...side, ...top]]).revolve(segs).warp(v => {
+    for (let z = sideBot + dz; z < sideTop - 1e-6; z += dz) side.push([rAt(z), z]);
+    outer = new CrossSection([outerPts(side)]).revolve(segs).warp(v => {
       const r = Math.hypot(v[0], v[1]), z = v[2];
-      if ((lip && z >= lipZ) || Math.abs(r - rAt(z)) > 1e-3) return; // only the body's outer face
+      const onSide = (!lip || z < lipZ) && (Math.abs(r - rAt(z)) < 1e-3 || (z <= sideBot + 1e-6 && r >= botArc[0][0] - 1e-3)
+        || (!lip && z >= sideTop - 1e-6 && r >= topArc.at(-1)[0] - 1e-3));
+      if (!onSide) return;
       const d = dAt(Math.atan2(v[1], v[0]), z);
       v[0] *= (r + d) / r; v[1] *= (r + d) / r;
     });
@@ -179,27 +198,6 @@ export function build(wasm, p, show = { core: true, wedges: true }) {
       locks = !pullsOff(a, (dAt(a + e, z) - dAt(a - e, z)) / (2 * e) / (rAt(z) + dAt(a, z)), p.wedges, m);
     }
     if (locks) warnings.push('The pattern leans too steeply near a seam and may lock the wedges on. Lower depth or count, or add wedges');
-  }
-  // cavity: wall measured horizontally, so it follows the outer taper; narrowed at the bottom if needed so the
-  // core always has at least `draft` degrees of taper to pull out upward
-  const rInTop = rt - p.wall, rInBot = Math.min(rAt(p.base) - p.wall, rInTop - (H - p.base) * Math.tan(p.draft * Math.PI / 180));
-  if (rInBot <= p.drainDia / 2) throw new Error('Draft angle leaves no room at the bottom of the core');
-  if (p.holeBot && rInBot < p.holeBot - 0.05)
-    warnings.push(`Core draft narrows the bottom of the hole to ${(2 * rInBot).toFixed(1)} mm. Lower the draft or widen the top`);
-  // pot edges: the outer ones are cut off the outer solid (out past any pattern, which gets trimmed there), the inner
-  // ones are drawn into the cavity. Each is capped to leave the face it sits on.
-  const fil = p.edgeStyle !== 'chamfer', lip = p.lipHeight > 0, cTop = [lip ? rLip : rt, H], X = Math.max(rb, cTop[0]) + p.patternDepth + 2;
-  const rimW = cTop[0] - rInTop, bot = [rInBot, p.base], top = [rInTop, H];
-  const eTO = Math.min(p.edgeTopOut, rimW * 0.49, lip ? p.lipHeight - 0.1 : lipZ / 2), eBO = Math.min(p.edgeBotOut, rb - p.drainDia / 2 - 0.5, lipZ / 2);
-  const eTI = Math.min(p.edgeTopIn, rimW * 0.49, (H - p.base) / 2), eBI = Math.min(p.edgeBotIn, rInBot - p.drainDia / 2 - 1, (H - p.base) / 2);
-  const cutter = pts => new CrossSection([pts]).revolve(segs);
-  if (eBO > 0) {
-    const arc = corner([rb, 0], [-1, 0], unit([rb, 0], [rAt(lipZ), lipZ]), eBO, fil);
-    outer = outer.subtract(cutter([[arc[0][0], -1], [X, -1], [X, arc.at(-1)[1]], ...arc.reverse()]));
-  }
-  if (eTO > 0) {
-    const arc = corner(cTop, lip ? [0, -1] : unit(cTop, [rb, 0]), [-1, 0], eTO, fil);
-    outer = outer.subtract(cutter([[X, arc[0][1]], [X, H + 1], [arc.at(-1)[0], H + 1], ...arc.reverse()]));
   }
   const cavity = rev([[0, p.base], ...corner(bot, [-1, 0], unit(bot, top), eBI, fil), ...corner(top, unit(top, bot), [1, 0], eTI, fil), [0, H]]);
   // drain hole (a zero-radius cylinder is invalid and would empty every part it touches)
@@ -276,7 +274,7 @@ export function build(wasm, p, show = { core: true, wedges: true }) {
     if (rd > screwR + 1.5) {
       const hole = Manifold.cylinder(zB + 2, screwR, screwR, 24).translate([0, 0, -1]);
       pin = pin.subtract(hole);
-      core = core.subtract(hole).subtract(countersink(Manifold, screwR, headR, zB));
+      core = core.subtract(hole).subtract(countersink(Manifold, screwR, headR, zB, p.csAngle));
     }
   }
   // spider (plan view): a ring over the core's rim + rounded, filleted spokes out over each wedge seam's rib pair
@@ -333,10 +331,13 @@ export function build(wasm, p, show = { core: true, wedges: true }) {
 }
 
 // screw holes from the screw's thread size: pilot (the screw bites in), clearance (it passes through), head (countersink).
-// Only the pilot is tuned, by pilotAdjust from the test print; clearance holes are forgiving.
-export const screwHoles = p => ({ pilotR: (0.8 * p.screw + p.pilotAdjust) / 2, clearR: (p.screw + 0.5) / 2, headR: p.screw });
-// 90° cone from the head down to the clearance hole, top at z
-const countersink = (Manifold, r, headR, z) => Manifold.cylinder(headR - r + 0.01, r, headR + 0.01, 24).translate([0, 0, z - (headR - r)]);
+// Only the pilot is tuned, by pilotAdjust from the test print; clearance holes are forgiving. Head diameter 0 = 2× the screw.
+export const screwHoles = p => ({ pilotR: (0.8 * p.screw + p.pilotAdjust) / 2, clearR: (p.screw + 0.5) / 2, headR: (p.headDia || 2 * p.screw) / 2 });
+// cone (csAngle included) from the head down to the clearance hole, top at z
+const countersink = (Manifold, r, headR, z, angle) => {
+  const R = Math.max(headR, r + 0.1), h = (R - r) / Math.tan(angle * Math.PI / 360); // poked 0.01 out the top for a clean cut
+  return Manifold.cylinder(h + 0.01, r, R + 0.01 * (R - r) / h, 24).translate([0, 0, z - h]);
+};
 
 // test bar: 5 pilot holes at -0.4..+0.4 mm from the setting (a notch marks the middle one, the current setting),
 // then one clearance hole and one countersunk clearance hole. Prints flat, 10 mm deep.
@@ -347,6 +348,6 @@ export function testPrint(wasm, p) {
   const at = (m, i) => m.translate([pitch * (i + 0.5), W / 2, 0]);
   for (let i = 0; i < 5; i++) { const r = pilotR + (i - 2) * 0.2; bar = bar.subtract(at(Manifold.cylinder(T + 2, r, r, 24).translate([0, 0, -1]), i)); }
   bar = bar.subtract(at(Manifold.cylinder(T + 2, clearR, clearR, 24).translate([0, 0, -1]), 5));
-  bar = bar.subtract(at(Manifold.cylinder(T + 2, clearR, clearR, 24).translate([0, 0, -1]).add(countersink(Manifold, clearR, headR, T)), 6));
+  bar = bar.subtract(at(Manifold.cylinder(T + 2, clearR, clearR, 24).translate([0, 0, -1]).add(countersink(Manifold, clearR, headR, T, p.csAngle)), 6));
   return bar.subtract(Manifold.cylinder(T + 2, 1.5, 1.5, 4).translate([pitch * 2.5, 0, -1])); // notch on the edge by the middle pilot
 }
