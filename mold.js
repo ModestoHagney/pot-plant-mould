@@ -331,7 +331,7 @@ export function build(wasm, p, show = { core: true, wedges: true }) {
 }
 
 // screw holes from the screw's thread size: pilot (the screw bites in), clearance (it passes through), head (countersink).
-// Only the pilot is tuned, by pilotAdjust from the test print; clearance holes are forgiving. Head diameter 0 = 2× the screw.
+// Only the pilot is tuned, by pilotAdjust from the test print; clearance holes are forgiving. Countersink diameter (headDia) 0 = 2× the screw.
 export const screwHoles = p => ({ pilotR: (0.8 * p.screw + p.pilotAdjust) / 2, clearR: (p.screw + 0.5) / 2, headR: (p.headDia || 2 * p.screw) / 2 });
 // cone (csAngle included) from the head down to the clearance hole, top at z
 const countersink = (Manifold, r, headR, z, angle) => {

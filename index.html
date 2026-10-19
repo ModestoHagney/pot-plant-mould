@@ -167,13 +167,13 @@ document.getElementById('theme').onclick = () => {
 
 // Fill-bar slider: drag moves by distance (Shift = 1/8 speed), a click turns the number into a text box.
 // A hidden range input underneath carries the value, the arrow keys and the form name.
-function fillBar(name, label, min, max, step, value) {
+function fillBar(name, label, min, max, step, value, zero) {
   const el = document.createElement('div'), dec = (String(step).split('.')[1] || '').length;
   el.className = 'fill';
   el.innerHTML = `<span class="name">${label}</span><span class="val"></span>
     <input type="range" name="${name}" min="${min}" max="${max}" step="${step}" value="${value}" aria-label="${label}">`;
   const range = el.querySelector('input'), val = el.querySelector('.val');
-  const show = () => { val.textContent = (+range.value).toFixed(dec); el.style.setProperty('--p', `${(range.value - min) / (max - min) * 100}%`); };
+  const show = () => { val.textContent = zero && +range.value === 0 ? zero : (+range.value).toFixed(dec); el.style.setProperty('--p', `${(range.value - min) / (max - min) * 100}%`); };
   const set = v => {
     v = Math.min(max, Math.max(min, Math.round((v - min) / step) * step + min));
     if (+range.value === v) return;
@@ -207,7 +207,7 @@ function fillBar(name, label, min, max, step, value) {
 const switchRow = (name, label, on, attr = 'name') =>
   `<label class="switch"><span class="name">${label}</span><input type="checkbox" role="switch" ${attr}="${name}"${on ? ' checked' : ''}></label>`;
 
-// [name, label, min, max, step]
+// [name, label, min, max, step, what 0 shows as]
 const folds = [
   ['Pot', [['height', 'Height (mm)', 40, 400], ['topDia', 'Top diameter (mm)', 40, 400], ['bottomDia', 'Bottom diameter (mm)', 40, 400],
     ['wall', 'Wall (mm)', 4, 40], ['base', 'Base (mm)', 4, 40], ['lipHeight', 'Lip height (mm)', 0, 60],
@@ -215,20 +215,20 @@ const folds = [
   ['Edges', [['edgeTopOut', 'Top outside (mm)', 0, 10, 0.5], ['edgeTopIn', 'Top inside (mm)', 0, 10, 0.5],
     ['edgeBotOut', 'Bottom outside (mm)', 0, 15, 0.5], ['edgeBotIn', 'Bottom inside (mm)', 0, 15, 0.5]]],
   ['Pattern', [['patternDepth', 'Depth (mm)', 0, 10], ['patternCount', 'Count around', 4, 60], ['patternPitch', 'Vertical pitch (mm)', 5, 60], ['seed', 'Seed', 1, 999],
-    ['patternFade', 'Fade under lip (mm)', 1, 20]]],
-  ['Mould', [['wedges', 'Outer wedges', 2, 12], ['moldWall', 'Mould wall (mm)', 2, 20], ['gap', 'Gap between parts (mm)', 0, 1, 0.05],
+    ['patternFade', 'Lip fade (mm)', 1, 20]]],
+  ['Mould', [['wedges', 'Outer wedges', 2, 12], ['moldWall', 'Mould wall (mm)', 2, 20], ['gap', 'Fit gap (mm)', 0, 1, 0.05],
     ['draft', 'Core draft (°)', 0, 10, 0.5], ['bed', 'Printer bed (mm)', 100, 500]]],
-  ['Core', [['coreWall', 'Core wall (mm)', 2, 12, 0.5], ['coreFloor', 'Core floor (mm)', 3, 20, 0.5],
-    ['spiderThick', 'Spider thickness (mm)', 2, 12, 0.5], ['spiderRing', 'Spider ring width (mm)', 2, 20, 0.5],
-    ['spiderLip', 'Spider lip height (mm)', 0, 60], ['spiderLipThick', 'Spider lip thickness (mm)', 1, 8, 0.5],
-    ['spiderRound', 'Spider corner radius (mm)', 0, 5, 0.5], ['spokeFillet', 'Spoke fillet (mm)', 0, 10, 0.5],
-    ['spiderScrewDepth', 'Spider screw depth (mm)', 6, 40]]],
-  ['Clamping', [['ribDepth', 'Rib depth (mm, 0 = auto)', 0, 60], ['ribThick', 'Rib thickness (mm, 0 = auto)', 0, 20, 0.5],
-    ['ribRound', 'Rib corner radius (mm)', 0, 5, 0.5], ['ribFillet', 'Rib root fillet (mm)', 0.5, 10, 0.5],
-    ['flangeThick', 'Flange thickness (mm)', 2, 12, 0.5], ['screwTilt', 'Flange screw tilt (°)', 0, 30],
-    ['screwSpacing', 'Flange screws apart, max (mm)', 30, 200], ['boltSize', 'Bolt size (mm)', 3, 8, 0.1], ['boltCount', 'Bolts per seam', 1, 8]]],
+  ['Core', [['coreWall', 'Wall (mm)', 2, 12, 0.5], ['coreFloor', 'Floor (mm)', 3, 20, 0.5],
+    ['spiderThick', 'Spider thickness (mm)', 2, 12, 0.5], ['spiderRing', 'Ring width (mm)', 2, 20, 0.5],
+    ['spiderLip', 'Lip height (mm)', 0, 60], ['spiderLipThick', 'Lip thickness (mm)', 1, 8, 0.5],
+    ['spiderRound', 'Corners (mm)', 0, 5, 0.5], ['spokeFillet', 'Spoke fillet (mm)', 0, 10, 0.5],
+    ['spiderScrewDepth', 'Screw depth (mm)', 6, 40]]],
+  ['Clamping', [['ribDepth', 'Rib depth (mm)', 0, 60, 1, 'Auto'], ['ribThick', 'Rib thickness (mm)', 0, 20, 0.5, 'Auto'],
+    ['ribRound', 'Rib corners (mm)', 0, 5, 0.5], ['ribFillet', 'Rib fillet (mm)', 0.5, 10, 0.5],
+    ['flangeThick', 'Flange (mm)', 2, 12, 0.5], ['screwTilt', 'Screw tilt (°)', 0, 30],
+    ['screwSpacing', 'Screw spacing (mm)', 30, 200], ['boltSize', 'Bolt size (mm)', 3, 8, 0.1], ['boltCount', 'Bolts per seam', 1, 8]]],
   ['Screws', [['screw', 'Screw size (mm)', 2, 8, 0.1], ['pilotAdjust', 'Pilot adjust (mm)', -0.6, 0.6, 0.1],
-    ['headDia', 'Head diameter (mm, 0 = 2× screw)', 0, 16, 0.1], ['csAngle', 'Countersink angle (°)', 60, 120]]],
+    ['headDia', 'Countersink (mm)', 0, 16, 0.1, 'Auto'], ['csAngle', 'Countersink (°)', 60, 120]]],
 ];
 const form = document.getElementById('f');
 for (const [title, list] of folds) {
@@ -241,9 +241,9 @@ for (const [title, list] of folds) {
     <span class="seg">${['fillet', 'chamfer'].map(v => `<label><input type="radio" name="edgeStyle" value="${v}"${v === defaults.edgeStyle ? ' checked' : ''}>${v[0].toUpperCase() + v.slice(1)}</label>`).join('')}</span></div>`);
   if (title === 'Pattern') d.insertAdjacentHTML('beforeend', `<label class="row"><span class="name">Style</span>
     <select name="pattern">${Object.keys(patterns).map(k => `<option>${k}</option>`).join('')}</select></label>`);
-  for (const [k, label, min, max, step = 1] of list) {
+  for (const [k, label, min, max, step = 1, zero] of list) {
     if (k === 'boltSize') d.insertAdjacentHTML('beforeend', switchRow('bolts', 'Bolt holes', defaults.bolts));
-    d.append(fillBar(k, label, min, max, step, defaults[k]));
+    d.append(fillBar(k, label, min, max, step, defaults[k], zero));
   }
   if (title === 'Pattern') d.insertAdjacentHTML('beforeend', '<div class="btns"><button type="button" class="btn" id="reroll" title="Pick a new random seed">Reroll</button></div>');
   if (title === 'Screws') d.insertAdjacentHTML('beforeend', '<div class="btns"><button type="button" class="btn" id="testprint" title="Download a small bar of test holes: 5 pilots from -0.4 to +0.4 mm (notch = current setting), a clearance hole and a countersink">Test print</button></div>');
