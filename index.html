@@ -153,7 +153,7 @@ import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import Module from 'manifold-3d';
 import { zipSync, strToU8 } from 'fflate';
-import { build, defaults, patterns, trackMemory } from './mold.js';
+import { build, defaults, patterns, testPrint, trackMemory } from './mold.js';
 
 // theme: data-theme on <html>, none = match system
 const root = document.documentElement;
@@ -216,11 +216,12 @@ const folds = [
   ['Mould', [['wedges', 'Outer wedges', 2, 12], ['moldWall', 'Mould wall (mm)', 2, 20], ['gap', 'Gap between parts (mm)', 0, 1, 0.05],
     ['draft', 'Core draft (°)', 0, 5, 0.5], ['bed', 'Printer bed (mm)', 100, 500]]],
   ['Clamping', []],
+  ['Screws', [['screw', 'Screw size (mm)', 2, 5, 0.5], ['pilotAdjust', 'Pilot adjust (mm)', -0.6, 0.6, 0.1]]],
 ];
 const form = document.getElementById('f');
 for (const [title, list] of folds) {
   const d = document.createElement('details');
-  d.open = title !== 'Pattern' && title !== 'Clamping';
+  d.open = !['Pattern', 'Clamping', 'Screws'].includes(title);
   d.innerHTML = `<summary>${title}<span class="state" data-for="${title}"></span></summary>`;
   if (title === 'Pot') d.insertAdjacentHTML('beforeend', `<div class="row" title="Outside: the pot's outer size. Inside: the hole, e.g. to fit a plastic pot"><span class="name">Size by</span>
     <span class="seg">${['outside', 'inside'].map(v => `<label><input type="radio" name="sizeBy" value="${v}"${v === defaults.sizeBy ? ' checked' : ''}>${v[0].toUpperCase() + v.slice(1)}</label>`).join('')}</span></div>`);
@@ -230,6 +231,7 @@ for (const [title, list] of folds) {
   if (title === 'Pattern') d.insertAdjacentHTML('beforeend', '<div class="btns"><button type="button" class="btn" id="reroll" title="Pick a new random seed">Reroll</button></div>');
   if (title === 'Clamping') d.insertAdjacentHTML('beforeend', [['bolts', 'Bolt holes (M5)']]
     .map(([k, label]) => switchRow(k, label, defaults[k])).join(''));
+  if (title === 'Screws') d.insertAdjacentHTML('beforeend', '<div class="btns"><button type="button" class="btn" id="testprint" title="Download a small bar of test holes: 5 pilots from -0.4 to +0.4 mm (notch = current setting), a clearance hole and a countersink">Test print</button></div>');
   form.append(d);
 }
 const params = () => ({ ...defaults, ...Object.fromEntries([...form.elements].filter(e => e.name && (e.type !== 'radio' || e.checked))
@@ -240,6 +242,7 @@ function refreshForm() {
   const p = params(), state = {
     Pot: `${p.height} × ${p.topDia}${p.sizeBy === 'inside' ? ' inside' : ''}`, Pattern: p.pattern === 'none' ? 'Off' : p.pattern,
     Mould: `${p.wedges} wedges`, Clamping: p.bolts ? 'Ribs, bolts' : 'Ribs',
+    Screws: `${p.screw} mm${p.pilotAdjust ? `, pilot ${p.pilotAdjust > 0 ? '+' : ''}${p.pilotAdjust}` : ''}`,
   };
   for (const s of form.querySelectorAll('.state')) s.textContent = state[s.dataset.for];
   const inside = p.sizeBy === 'inside';
@@ -357,10 +360,13 @@ document.getElementById('export').onclick = () => {
   const named = [['core', 'core base', parts.core[0]], ...parts.core.slice(1).map((c, i) => ['core', `core wall ${i + 1}`, c]), ['core', 'spider', parts.spider],
     ...parts.wedges.map((w, i) => ['wedges', `wedge ${i + 1}`, w])]
     .filter(([part]) => on.has(part)).map(([, name, m]) => [name, m]);
-  const blob = new Blob([to3mf(named, Math.max(...named.map(([, m]) => { const b = m.boundingBox(); return b.max[0] - b.min[0]; })) + 10)], { type: 'model/3mf' });
-  const a = Object.assign(document.createElement('a'), { href: URL.createObjectURL(blob), download: 'pot-mould.3mf' });
-  a.click(); URL.revokeObjectURL(a.href);
+  save(to3mf(named, Math.max(...named.map(([, m]) => { const b = m.boundingBox(); return b.max[0] - b.min[0]; })) + 10), 'pot-mould.3mf');
 };
+function save(bytes, name) {
+  const a = Object.assign(document.createElement('a'), { href: URL.createObjectURL(new Blob([bytes], { type: 'model/3mf' })), download: name });
+  a.click(); URL.revokeObjectURL(a.href);
+}
+document.getElementById('testprint').onclick = () => save(to3mf([['screw test', testPrint(wasm, params())]], 0), 'screw-test.3mf');
 </script>
 </body>
 </html>
