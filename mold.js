@@ -6,7 +6,7 @@ export const defaults = {
   height: 120, topDia: 140, bottomDia: 100, wall: 10, base: 12,
   lipHeight: 0, lipWidth: 0, drainDia: 15, moldWall: 4, wedges: 4, segments: 96,
   pattern: 'none', patternDepth: 3, patternCount: 24, patternPitch: 20, seed: 1,
-  gap: 0.2, draft: 5, bed: 256, bolts: false, sizeBy: 'outside', screw: 4, pilotAdjust: 0, headDia: 0, csAngle: 90, patternFade: 4,
+  gap: 0.2, draft: 5, bed: 256, bolts: false, sizeBy: 'outside', screw: 4, pilotAdjust: 0, headDia: 8, csAngle: 90, patternFade: 4,
   // pot edges: size cut back along each face (0 = sharp)
   edgeStyle: 'fillet', edgeTopOut: 0, edgeTopIn: 0, edgeBotOut: 0, edgeBotIn: 0,
   coreWall: 4, coreFloor: 6, spiderThick: 4, spiderRing: 4, spiderLip: 10, spiderLipThick: 3, spiderRound: 1, spokeFillet: 3,
@@ -331,8 +331,8 @@ export function build(wasm, p, show = { core: true, wedges: true }) {
 }
 
 // screw holes from the screw's thread size: pilot (the screw bites in), clearance (it passes through), head (countersink).
-// Only the pilot is tuned, by pilotAdjust from the test print; clearance holes are forgiving. Countersink diameter (headDia) 0 = 2× the screw.
-export const screwHoles = p => ({ pilotR: (0.8 * p.screw + p.pilotAdjust) / 2, clearR: (p.screw + 0.5) / 2, headR: (p.headDia || 2 * p.screw) / 2 });
+// Only the pilot is tuned, by pilotAdjust from the test print; clearance holes are forgiving. headDia = the countersink's top diameter.
+export const screwHoles = p => ({ pilotR: (0.8 * p.screw + p.pilotAdjust) / 2, clearR: (p.screw + 0.5) / 2, headR: p.headDia / 2 });
 // cone (csAngle included) from the head down to the clearance hole, top at z
 const countersink = (Manifold, r, headR, z, angle) => {
   const R = Math.max(headR, r + 0.1), h = (R - r) / Math.tan(angle * Math.PI / 360); // poked 0.01 out the top for a clean cut
