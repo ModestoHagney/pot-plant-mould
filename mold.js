@@ -6,7 +6,7 @@ export const defaults = {
   height: 120, topDia: 140, bottomDia: 100, wall: 10, base: 12,
   lipHeight: 0, lipWidth: 0, drainDia: 15, moldWall: 4, wedges: 4, segments: 96,
   pattern: 'none', patternDepth: 3, patternCount: 24, patternPitch: 20, seed: 1,
-  gap: 0.2, draft: 3, bed: 256, bolts: false,
+  gap: 0.2, draft: 3, bed: 256, bolts: false, sizeBy: 'outside',
 };
 
 // Outer-face patterns: (params, top of the patterned band, smallest pot radius) -> (angle, height) -> 0..1,
@@ -112,6 +112,12 @@ export function trackMemory(wasm) {
 // skips hidden parts to keep them uncomputed.
 export function build(wasm, p, show = { core: true, wedges: true }) {
   const { Manifold, CrossSection } = wasm;
+  // sizes can describe the hole instead (e.g. to fit a plastic pot inside): turn them into outside sizes.
+  // The hole's bottom diameter is measured at the top of the base, where the cavity starts.
+  if (p.sizeBy === 'inside') {
+    const H = p.height + p.base, rt = p.topDia / 2 + p.wall, f = p.base / H;
+    p = { ...p, height: H, topDia: 2 * rt, bottomDia: 2 * (p.bottomDia / 2 + p.wall - rt * f) / (1 - f), holeBot: p.bottomDia / 2 };
+  }
   const rt = p.topDia / 2, rb = p.bottomDia / 2, H = p.height;
   const lipZ = H - p.lipHeight, rLip = rt + p.lipWidth;
   if (p.wall * 2 >= p.bottomDia || p.base >= H || p.lipHeight >= H) throw new Error('Wall, base or lip too big for this pot');
@@ -157,6 +163,8 @@ export function build(wasm, p, show = { core: true, wedges: true }) {
   // core always has at least `draft` degrees of taper to pull out upward
   const rInTop = rt - p.wall, rInBot = Math.min(rAt(p.base) - p.wall, rInTop - (H - p.base) * Math.tan(p.draft * Math.PI / 180));
   if (rInBot <= p.drainDia / 2) throw new Error('Draft angle leaves no room at the bottom of the core');
+  if (p.holeBot && rInBot < p.holeBot - 0.05)
+    warnings.push(`Core draft narrows the bottom of the hole to ${(2 * rInBot).toFixed(1)} mm. Lower the draft or widen the top`);
   const cavityTo = top => rev([[0, p.base], [rInBot, p.base], [rInTop, top], [0, top]]);
   // drain hole (a zero-radius cylinder is invalid and would empty every part it touches)
   let pot = outer.subtract(cavityTo(H));

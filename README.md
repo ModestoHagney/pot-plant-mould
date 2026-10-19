@@ -4,6 +4,8 @@ Client-side web app that designs concrete plant pots and 3D-printable molds.
 
 ## Run
 
+Pot sizes are outside sizes by default; switch "Size by" to Inside to enter the hole instead (e.g. to fit a plastic pot), and the wall and base are added outward.
+
 Serve the folder and open it, e.g. `python3 -m http.server`, then visit http://localhost:8000.
 
 ## Check
