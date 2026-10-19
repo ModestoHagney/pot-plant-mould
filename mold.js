@@ -1,7 +1,7 @@
 // Pure geometry: params (mm) -> Manifold solids. Pot axis is +Z, base at z=0.
 // Casting is done upright: wedges are screwed down to a board through their bottom flange and clamped shut, the
-// board forms the pot's underside. The core pieces sit on a drain plug screwed to the board, a spider on top screws
-// into the core pieces and the wedge seam ribs, and concrete is poured between the spider's spokes.
+// board forms the pot's underside. The core's base disc is screwed down through its drain pin, the wall pieces screw
+// to the disc, a spider on top screws into them and the wedge seam ribs, and concrete is poured between its spokes.
 export const defaults = {
   height: 120, topDia: 140, bottomDia: 100, wall: 10, base: 12,
   lipHeight: 0, lipWidth: 0, drainDia: 15, moldWall: 4, wedges: 4, segments: 96,
@@ -223,37 +223,44 @@ export function build(wasm, p, show = { core: true, wedges: true }) {
     Manifold.cylinder(y1 - y0, 2.75, 2.75, 24).rotate([-90, 0, 0]).translate([rOut(z) + boltX, y0, z])));
   const bolts = bolt(-g - ribT - 1, g + ribT + 1);
 
-  // core: a hollow shell (mould wall thick) open at the top, split on the same seams as the wedges so each piece
-  // slides straight up out of the pot (the core always has `draft` taper). Inside, every seam has a rib pair with a
-  // vertical tongue and groove running up the wall and along the floor, so pieces lock and seal yet still slide apart
-  // upward. Pieces print floor-down. A separate spider sits on top: a ring with a lip that drops into the core and
-  // screws into a 45°-bottomed tab on each piece, and one spoke per seam screwed into both ribs of that wedge seam.
-  // Core wall is the mould wall, capped at 8 mm (thicker only wastes filament inside a small pot).
-  // A separate drain plug screws to the board and its tapered top seats in a socket in the core floor.
+  // core: a flat base disc (the core floor) plus wall pieces split on the same seams as the wedges. The disc prints
+  // upside down; with a drain its pin is built in and one screw goes from the top down through disc and pin into the
+  // board. Wall pieces stand on the disc's edge, print bottom-down, and each screws down into the disc through a tab.
+  // Inside, every seam has a rib pair with a vertical tongue and groove, so pieces lock and seal yet still slide
+  // straight up to demould (the core always has `draft` taper). A separate spider sits on top: a ring with a lip that
+  // drops into the core and screws into a 45°-bottomed tab on each piece, and one spoke per seam screwed into both
+  // ribs of that wedge seam. Core wall is the mould wall, capped at 8 mm (thicker only wastes filament).
   const t = Math.min(p.moldWall, 8), kc = (rInTop - rInBot) / (H - p.base), rIn = z => rInBot + kc * (z - p.base) - t; // inner wall radius
   const screwPilot = 1.6, screwR = 2.25; // ~4 mm wood screws
-  const cT = Math.max(5, t), cD = Math.max(4, Math.min(12, rIn(p.base + t) - p.drainDia / 2 - t - 4)), cjh = Math.min(3, cT / 2) + 2 * g; // core rib: thickness per side, depth, tongue height
-  const xRib = rIn(p.base + t) - cD, zRib = p.base + t + cD, rd = p.drainDia / 2, half = Math.PI / p.wedges;
-  if (xRib < rd + t + 2) throw new Error('Pot floor too small for the core ribs');
+  const tb = Math.max(t, 8), zB = p.base + tb; // disc thickness (enough for screws to bite), wall pieces start at zB
+  const cT = Math.max(5, t), cD = Math.min(12, rIn(zB) / 3), cjh = Math.min(3, cT / 2) + 2 * g; // core rib: thickness per side, depth, tongue height
+  const xRib = rIn(zB) - cD, rd = p.drainDia / 2, half = Math.PI / p.wedges;
   const box = (x0, x1, y0, y1, z0, z1) => Manifold.cube([x1 - x0, y1 - y0, z1 - z0]).translate([x0, y0, z0]);
-  // seam-local (x out along the seam): the rib pair, up the wall (x > xRib) and along the floor (z < zRib)
-  const ribZone = e => box(xRib - e, 1e4, -g - cT - e, g + cT + e, p.base - 1, H + 2).add(box(0, 1e4, -g - cT - e, g + cT + e, p.base - 1, zRib + e));
-  const boss = rd > 0 ? Manifold.cylinder(zRib - p.base + 1, rd + t, rd + t, p.segments).translate([0, 0, p.base - 1]) : Manifold.union([]);
-  const hollow = rev([[0, p.base + t], [rIn(p.base + t), p.base + t], [rIn(H + 1), H + 1], [0, H + 1]])
-    .subtract(Manifold.union(Array.from({ length: p.wedges }, (_, i) => atSeam(ribZone(0), 2 * half * i)))).subtract(boss);
-  const coreSolid = cavityTo(H).subtract(hollow);
-  // tongue: a vertical fin on the y = g face, beveled 45°, from near the centre out into the wall rib; the groove is
-  // the same fin grown by the clearance, cut through the neighbour's rib (open top and bottom, so both slide up)
-  const fx0 = Math.max(rd + 2, (g + cT + cjh) / Math.tan(Math.min(half, Math.PI / 2 - 1e-3)) + 2), fx1 = rIn(p.base + t), d = 0.5 + cjh;
+  const ribZone = e => box(xRib - e, 1e4, -g - cT - e, g + cT + e, p.base - 1, H + 2); // seam-local (x out along the seam)
+  const hollow = rev([[0, zB], [rIn(zB), zB], [rIn(H + 1), H + 1], [0, H + 1]])
+    .subtract(Manifold.union(Array.from({ length: p.wedges }, (_, i) => atSeam(ribZone(0), 2 * half * i))));
+  const walls = cavityTo(H).subtract(hollow).subtract(box(-1e4, 1e4, -1e4, 1e4, p.base - 1, zB));
+  // tongue: a vertical fin on the y = g face, beveled 45°, through the wall rib; the groove is the same fin grown by
+  // the clearance, cut through the neighbour's rib (open top and bottom, so both slide up)
+  const fx0 = xRib + 1, fx1 = rIn(zB) + t / 2, d = 0.5 + cjh;
   const fin = new CrossSection([[[fx0, g + 0.5], [fx0 + d, g - cjh], [fx1 - d, g - cjh], [fx1, g + 0.5]]]);
-  const tongueC = fin.extrude(H + 2).translate([0, 0, p.base - 1]).intersect(ribZone(0)).intersect(cavityTo(H));
-  const grooveC = fin.offset(c, 'Miter').extrude(H + 2).translate([0, 0, p.base - 1]).intersect(ribZone(c));
-  // screw tab halfway round each piece, just under the spider's lip, with a 45° underside so it prints floor-down
+  const tongueC = fin.extrude(H + 2).translate([0, 0, zB]).intersect(cavityTo(H));
+  const grooveC = fin.offset(c, 'Miter').extrude(H + 2).translate([0, 0, zB - 1]);
+  // screw tab halfway round each piece, just under the spider's lip, with a 45° underside so it prints bottom-down
   const lipD = 6, lipT = t, rS2 = rIn(H - lipD) - lipT / 2, zT = H - lipD - g, rTi = rIn(H - lipD) - lipT - 1, wall = rIn(zT) + t / 2;
   const tab = new CrossSection([[[rTi, zT], [rTi, zT - 6], [wall, zT - 6 - (wall - rTi)], [wall, zT]]]).extrude(10)
     .rotate([90, 0, 0]).translate([0, 5, 0]).intersect(cavityTo(H)).subtract(Manifold.cylinder(10, screwPilot, screwPilot, 24).translate([rS2, 0, zT - 7]));
-  const plugBody = rd > 0 ? Manifold.cylinder(p.base, rd, rd, p.segments).add(Manifold.cylinder(Math.min(cD - 1, rd / 2), rd, rd / 2, p.segments).translate([0, 0, p.base])) : null;
-  const plug = plugBody?.subtract(Manifold.cylinder(Math.min(20, p.base + rd / 2 - 2), screwPilot, screwPilot, 24).translate([0, 0, -1])); // pilot for a screw up through the board
+  // foot: a ledge round the bottom of each piece's inside, standing on the disc, screwed down into it halfway round
+  // (clearance hole in the ledge, pilot in the disc). It runs wall to wall, merging with the seam ribs.
+  const rF0 = rIn(zB) - 12, rFS = rIn(zB) - 6;
+  const ledge = rev([[rF0, zB], [rIn(zB) + 1, zB], [rIn(zB) + 1, zB + 8], [rF0, zB + 8]])
+    .subtract(atSeam(Manifold.cylinder(10, screwR, screwR, 24).translate([rFS, 0, zB - 1]), half));
+  let disc = cavityTo(H).intersect(box(-1e4, 1e4, -1e4, 1e4, p.base - 1, zB));
+  if (rd > 0) disc = disc.add(Manifold.cylinder(p.base, rd, rd, p.segments)); // drain pin, fills the pot's drain hole
+  if (rd > screwR + 1.5) // screw from the top through disc and pin into the board, countersunk
+    disc = disc.subtract(Manifold.cylinder(zB + 2, screwR, screwR, 24).translate([0, 0, -1]))
+      .subtract(Manifold.cylinder(screwR + 0.01, screwR, 2 * screwR + 0.01, 24).translate([0, 0, zB - screwR]));
+  for (let i = 0; i < p.wedges; i++) disc = disc.subtract(atSeam(Manifold.cylinder(tb - 1.5, screwPilot, screwPilot, 24).translate([rFS, 0, p.base + 1.5]), 2 * half * i + half));
   const sector = i => {
     const a0 = 2 * half * i, k = g / Math.sin(half), R = rInTop + 10, pts = [[k * Math.cos(a0 + half), k * Math.sin(a0 + half)]];
     pts.push([R * Math.cos(a0) - g * Math.sin(a0), R * Math.sin(a0) + g * Math.cos(a0)]);
@@ -262,11 +269,11 @@ export function build(wasm, p, show = { core: true, wedges: true }) {
     pts.push([R * Math.cos(a1) + g * Math.sin(a1), R * Math.sin(a1) - g * Math.cos(a1)]);
     return new CrossSection([pts]).extrude(H + 4).translate([0, 0, -2]);
   };
-  const core = Array.from({ length: p.wedges }, (_, i) => {
+  const core = [disc, ...Array.from({ length: p.wedges }, (_, i) => {
     const a0 = 2 * half * i;
-    let m = coreSolid.intersect(sector(i)).add(atSeam(tongueC, a0)).subtract(atSeam(grooveC, a0 + 2 * half)).add(atSeam(tab, a0 + half));
-    return plugBody ? m.subtract(plugBody) : m;
-  });
+    return walls.add(ledge.rotate([0, 0, a0 * 180 / Math.PI])).intersect(sector(i)).add(atSeam(tongueC, a0))
+      .subtract(atSeam(grooveC, a0 + 2 * half)).add(atSeam(tab, a0 + half));
+  })];
   // spider (plan view): ring over the core's top + rounded, filleted spokes out over each wedge seam's rib pair
   const spokeY = g + ribT, rEnd = rMax + ribD, rr = Math.min(2, (t + lipT) / 4), sf = Math.min(4, ribT / 2);
   const plan = CrossSection.circle(rInTop, p.segments).subtract(CrossSection.circle(rS2 - screwR - 2.5, p.segments))
@@ -316,8 +323,8 @@ export function build(wasm, p, show = { core: true, wedges: true }) {
     const { min, max } = m.boundingBox(), w = Math.ceil(max[0] - min[0]), d = Math.ceil(max[1] - min[1]);
     if (Math.max(w, d) > p.bed) warnings.push(`${name} is ${w} × ${d} mm, bigger than your ${p.bed} mm bed`);
   };
-  if (show.core) { fits('Each core piece', core[0].rotate([0, 0, -180 / n])); fits('Spider', spider); }
+  if (show.core) { fits('Each core piece', core[1].rotate([0, 0, -180 / n])); fits('Spider', spider); }
   if (show.wedges) fits('Each wedge', wedges[0].rotate([0, 0, -180 / n]));
   if (warnings.length > before) warnings.push('Try more wedges');
-  return { pot, core, spider, plug, wedges, screws, rMax, warnings };
+  return { pot, core, spider, wedges, screws, rMax, warnings };
 }
