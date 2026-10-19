@@ -309,11 +309,13 @@ function regen() {
   } catch (e) { err.textContent = e.message; return; }
   for (const o of group.children) { o.geometry.dispose(); o.material.dispose(); }
   group.clear();
-  const { pot, core, wedges } = parts, n = wedges.length;
+  const { pot, core, spider, plug, wedges } = parts, n = wedges.length;
   built = on;
   const add = (part, m, color, dir) => { if (!on.has(part)) return; const o = new THREE.Mesh(toGeom(m), mat(color)); o.userData = { part, dir }; group.add(o); };
   add('pot', pot, 0x9a9a95, new THREE.Vector3());
-  add('core', core, 0xd9a35f, new THREE.Vector3(0, 0, 1.5));
+  core.forEach((c, i) => { const a = (i + 0.5) / n * 2 * Math.PI; add('core', c, i % 2 ? 0xd9a35f : 0xe6b878, new THREE.Vector3(0.4 * Math.cos(a), 0.4 * Math.sin(a), 1.5)); });
+  add('core', spider, 0xc98f45, new THREE.Vector3(0, 0, 2.2));
+  if (plug) add('core', plug, 0xc98f45, new THREE.Vector3(0, 0, -0.6));
   wedges.forEach((w, i) => { const a = (i + 0.5) / n * 2 * Math.PI; add('wedges', w, i % 2 ? 0x4f86c6 : 0x6aa0d8, new THREE.Vector3(Math.cos(a), Math.sin(a), 0)); });
   layout();
 }
@@ -342,9 +344,10 @@ function to3mf(named, spacing) {
 document.getElementById('export').onclick = () => {
   if (!parts) return;
   const on = shown();
-  const named = [['core', 'core', parts.core], ...parts.wedges.map((w, i) => ['wedges', `wedge ${i + 1}`, w])]
+  const named = [...parts.core.map((c, i) => ['core', `core ${i + 1}`, c]), ['core', 'spider', parts.spider],
+    ...(parts.plug ? [['core', 'drain plug', parts.plug]] : []), ...parts.wedges.map((w, i) => ['wedges', `wedge ${i + 1}`, w])]
     .filter(([part]) => on.has(part)).map(([, name, m]) => [name, m]);
-  const blob = new Blob([to3mf(named, parts.rMax * 2 + 10)], { type: 'model/3mf' });
+  const blob = new Blob([to3mf(named, Math.max(...named.map(([, m]) => { const b = m.boundingBox(); return b.max[0] - b.min[0]; })) + 10)], { type: 'model/3mf' });
   const a = Object.assign(document.createElement('a'), { href: URL.createObjectURL(blob), download: 'pot-mould.3mf' });
   a.click(); URL.revokeObjectURL(a.href);
 };
