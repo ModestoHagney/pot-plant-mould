@@ -4,9 +4,9 @@ const wasm = await Module(); wasm.setup();
 const free = trackMemory(wasm); // freed before each build, as the app does
 for (const [n, pattern, extra] of [[2, 'none', { bolts: true }], [4, 'none', { drainDia: 0 }], [3, 'ribs', { lipWidth: 0 }], [6, 'diamonds', { bolts: true, moldWall: 15 }], [4, 'lowpoly', { lipHeight: 0, lipWidth: 0 }], [4, 'none', { screw: 2, pilotAdjust: -0.6 }], [4, 'none', { screw: 5, pilotAdjust: 0.6, moldWall: 8 }], ...Object.keys(patterns).map(k => [4, k])]) {
   free();
-  const { pot, core, spider, wedges, screws, footScrews } = build(wasm, { ...defaults, wedges: n, pattern, ...extra });
+  const { pot, core, pin, spider, wedges, screws } = build(wasm, { ...defaults, wedges: n, pattern, ...extra });
   if (pot.status() !== 'NoError' || pot.genus() !== (extra?.drainDia === 0 ? 0 : 1)) throw new Error(`bad pot for ${pattern}`);
-  const solids = [pot, ...core, spider, ...wedges];
+  const solids = [pot, core, spider, ...wedges, ...(pin ? [pin] : [])];
   // every part sum must equal their union (nothing overlaps)
   const all = wasm.Manifold.union(solids);
   const sum = solids.reduce((a, m) => a + m.volume(), 0);
@@ -15,8 +15,10 @@ for (const [n, pattern, extra] of [[2, 'none', { bolts: true }], [4, 'none', { d
   if (Math.abs(sum - all.volume()) > 1) throw new Error('parts overlap');
   if (wedges.some(w => w.isEmpty() || w.decompose().length !== 1)) throw new Error('wedge is empty or in pieces');
   // disc: only its top screw hole goes through; wall pieces: only the foot screw holes (at least 2, one by each join)
-  if (core.length !== n + 1 || core.some((m, i) => m.isEmpty() || m.decompose().length !== 1 || m.genus() !== (i ? footScrews : extra?.drainDia !== 0 ? 1 : 0)) || footScrews < 2) throw new Error('core piece is empty, in bits or has a void');
-  if (spider.decompose().length !== 1 || spider.genus() !== 3 * n + 1) throw new Error('spider is in bits or missing screw holes');
+  // core and pin: only the drain screw hole goes through
+  const hole = extra?.drainDia !== 0 ? 1 : 0;
+  if (core.decompose().length !== 1 || core.genus() !== hole || !pin !== !hole || (pin && pin.genus() !== 1)) throw new Error('core or pin is in bits, has a void or is missing');
+  if (spider.decompose().length !== 1 || spider.genus() !== 2 * n + 1) throw new Error('spider is in bits or missing screw holes');
   // no bolts = only the screw holes: any other genus means a hidden void or tunnel (e.g. a gap at the rib root)
   if (!extra?.bolts && wedges.some(w => w.genus() !== screws)) throw new Error('wedge has a void or tunnel');
 }
@@ -56,7 +58,7 @@ console.log('pattern checks ok');
     if (bar.status() !== 'NoError' || bar.decompose().length !== 1 || bar.genus() !== 7) throw new Error('test bar is broken');
   }
   if (testPrint(wasm, { ...defaults, pilotAdjust: 0.4 }).volume() >= testPrint(wasm, defaults).volume()) throw new Error('pilot adjust does not widen holes');
-  const disc = s => build(wasm, { ...defaults, screw: s }).core[0].volume();
+  const disc = s => build(wasm, { ...defaults, screw: s }).core.volume();
   if (disc(6) >= disc(4)) throw new Error('bigger screws should cut bigger holes');
   console.log('screw checks ok');
 }
