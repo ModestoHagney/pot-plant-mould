@@ -250,17 +250,22 @@ export function build(wasm, p, show = { core: true, wedges: true }) {
   const lipD = 6, lipT = t, rS2 = rIn(H - lipD) - lipT / 2, zT = H - lipD - g, rTi = rIn(H - lipD) - lipT - 1, wall = rIn(zT) + t / 2;
   const tab = new CrossSection([[[rTi, zT], [rTi, zT - 6], [wall, zT - 6 - (wall - rTi)], [wall, zT]]]).extrude(10)
     .rotate([90, 0, 0]).translate([0, 5, 0]).intersect(cavityTo(H)).subtract(Manifold.cylinder(10, screwPilot, screwPilot, 24).translate([rS2, 0, zT - 7]));
-  // foot: a ledge round the bottom of each piece's inside, standing on the disc, screwed down into it halfway round
-  // (clearance hole in the ledge, pilot in the disc). It runs wall to wall, merging with the seam ribs.
+  // foot: a ledge round the bottom of each piece's inside, standing on the disc, screwed down into it (clearance holes
+  // in the ledge, pilots in the disc). It runs wall to wall, merging with the seam ribs. Screws sit just clear of the
+  // ribs at both ends so the joins can't move, plus more between them, no more than 60 mm apart.
   const rF0 = rIn(zB) - 12, rFS = rIn(zB) - 6;
+  const off = Math.asin(Math.min(1, (g + cT + screwR + 1.5) / rFS)), span = 2 * half - 2 * off;
+  const nF = span > 0 ? Math.max(2, Math.ceil(rFS * span / 60) + 1) : 1;
+  const footAngles = nF > 1 ? Array.from({ length: nF }, (_, j) => off + span * j / (nF - 1)) : [half];
+  if (nF < 2) warnings.push('Core pieces are too narrow for two foot screws each. Use fewer wedges');
   const ledge = rev([[rF0, zB], [rIn(zB) + 1, zB], [rIn(zB) + 1, zB + 8], [rF0, zB + 8]])
-    .subtract(atSeam(Manifold.cylinder(10, screwR, screwR, 24).translate([rFS, 0, zB - 1]), half));
+    .subtract(Manifold.union(footAngles.map(a => atSeam(Manifold.cylinder(10, screwR, screwR, 24).translate([rFS, 0, zB - 1]), a))));
   let disc = cavityTo(H).intersect(box(-1e4, 1e4, -1e4, 1e4, p.base - 1, zB));
   if (rd > 0) disc = disc.add(Manifold.cylinder(p.base, rd, rd, p.segments)); // drain pin, fills the pot's drain hole
   if (rd > screwR + 1.5) // screw from the top through disc and pin into the board, countersunk
     disc = disc.subtract(Manifold.cylinder(zB + 2, screwR, screwR, 24).translate([0, 0, -1]))
       .subtract(Manifold.cylinder(screwR + 0.01, screwR, 2 * screwR + 0.01, 24).translate([0, 0, zB - screwR]));
-  for (let i = 0; i < p.wedges; i++) disc = disc.subtract(atSeam(Manifold.cylinder(tb - 1.5, screwPilot, screwPilot, 24).translate([rFS, 0, p.base + 1.5]), 2 * half * i + half));
+  for (let i = 0; i < p.wedges; i++) for (const a of footAngles) disc = disc.subtract(atSeam(Manifold.cylinder(tb - 1.5, screwPilot, screwPilot, 24).translate([rFS, 0, p.base + 1.5]), 2 * half * i + a));
   const sector = i => {
     const a0 = 2 * half * i, k = g / Math.sin(half), R = rInTop + 10, pts = [[k * Math.cos(a0 + half), k * Math.sin(a0 + half)]];
     pts.push([R * Math.cos(a0) - g * Math.sin(a0), R * Math.sin(a0) + g * Math.cos(a0)]);
@@ -326,5 +331,5 @@ export function build(wasm, p, show = { core: true, wedges: true }) {
   if (show.core) { fits('Each core piece', core[1].rotate([0, 0, -180 / n])); fits('Spider', spider); }
   if (show.wedges) fits('Each wedge', wedges[0].rotate([0, 0, -180 / n]));
   if (warnings.length > before) warnings.push('Try more wedges');
-  return { pot, core, spider, wedges, screws, rMax, warnings };
+  return { pot, core, spider, wedges, screws, footScrews: footAngles.length, rMax, warnings };
 }
