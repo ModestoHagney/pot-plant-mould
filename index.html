@@ -173,8 +173,10 @@ function fillBar(name, label, min, max, step, value, zero) {
   el.innerHTML = `<span class="name">${label}</span><span class="val"></span>
     <input type="range" name="${name}" min="${min}" max="${max}" step="${step}" value="${value}" aria-label="${label}">`;
   const range = el.querySelector('input'), val = el.querySelector('.val');
-  const show = () => { val.textContent = zero && +range.value === 0 ? zero : (+range.value).toFixed(dec); el.style.setProperty('--p', `${(range.value - min) / (max - min) * 100}%`); };
+  // min is read live: some limits follow other settings (the countersink can't be smaller than the screw's hole)
+  const show = () => { min = +range.min; val.textContent = zero && +range.value === 0 ? zero : (+range.value).toFixed(dec); el.style.setProperty('--p', `${(range.value - min) / (max - min) * 100}%`); };
   const set = v => {
+    min = +range.min;
     v = Math.min(max, Math.max(min, Math.round((v - min) / step) * step + min));
     if (+range.value === v) return;
     range.value = v; show(); range.dispatchEvent(new Event('input', { bubbles: true }));
@@ -228,7 +230,7 @@ const folds = [
     ['flangeThick', 'Flange (mm)', 2, 12, 0.5], ['screwTilt', 'Screw tilt (°)', 0, 30],
     ['screwSpacing', 'Screw spacing (mm)', 30, 200], ['boltSize', 'Bolt size (mm)', 3, 8, 0.1], ['boltCount', 'Bolts per seam', 1, 8]]],
   ['Screws', [['screw', 'Screw size (mm)', 2, 8, 0.1], ['pilotAdjust', 'Pilot adjust (mm)', -0.6, 0.6, 0.1],
-    ['headDia', 'Countersink (mm)', 0, 16, 0.1, 'Auto'], ['csAngle', 'Countersink (°)', 60, 120]]],
+    ['headDia', 'Countersink (mm)', 2.6, 16, 0.1], ['csAngle', 'Countersink (°)', 60, 120]]],
 ];
 const form = document.getElementById('f');
 for (const [title, list] of folds) {
@@ -261,6 +263,9 @@ function refreshForm() {
     Screws: `${p.screw} mm${p.pilotAdjust ? `, pilot ${p.pilotAdjust > 0 ? '+' : ''}${p.pilotAdjust}` : ''}`,
   };
   for (const s of form.querySelectorAll('.state')) s.textContent = state[s.dataset.for];
+  // countersink starts just above the screw's clearance hole (screw + 0.5)
+  const hd = form.elements.headDia, hdMin = (p.screw + 0.6).toFixed(1);
+  if (hd.min !== hdMin) { hd.min = hdMin; hd.value = Math.max(+hd.value, +hdMin); hd.dispatchEvent(new Event('input', { bubbles: true })); }
   const inside = p.sizeBy === 'inside';
   for (const [k, out, ins] of [['height', 'Height', 'Inside depth'], ['topDia', 'Top diameter', 'Inside top diameter'], ['bottomDia', 'Bottom diameter', 'Inside bottom diameter']])
     form.elements[k].setAttribute('aria-label', form.elements[k].closest('.fill').querySelector('.name').textContent = `${inside ? ins : out} (mm)`);
