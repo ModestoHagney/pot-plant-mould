@@ -1,8 +1,8 @@
 import Module from 'manifold-3d';
-import { build, defaults, patterns, trackMemory } from './mold.js';
+import { build, defaults, patterns, screwHoles, testPrint, trackMemory } from './mold.js';
 const wasm = await Module(); wasm.setup();
 const free = trackMemory(wasm); // freed before each build, as the app does
-for (const [n, pattern, extra] of [[2, 'none', { bolts: true }], [4, 'none', { drainDia: 0 }], [3, 'ribs', { lipWidth: 0 }], [6, 'diamonds', { bolts: true, moldWall: 15 }], [4, 'lowpoly', { lipHeight: 0, lipWidth: 0 }], ...Object.keys(patterns).map(k => [4, k])]) {
+for (const [n, pattern, extra] of [[2, 'none', { bolts: true }], [4, 'none', { drainDia: 0 }], [3, 'ribs', { lipWidth: 0 }], [6, 'diamonds', { bolts: true, moldWall: 15 }], [4, 'lowpoly', { lipHeight: 0, lipWidth: 0 }], [4, 'none', { screw: 2, pilotAdjust: -0.6 }], [4, 'none', { screw: 5, pilotAdjust: 0.6, moldWall: 8 }], ...Object.keys(patterns).map(k => [4, k])]) {
   free();
   const { pot, core, spider, wedges, screws, footScrews } = build(wasm, { ...defaults, wedges: n, pattern, ...extra });
   if (pot.status() !== 'NoError' || pot.genus() !== (extra?.drainDia === 0 ? 0 : 1)) throw new Error(`bad pot for ${pattern}`);
@@ -45,4 +45,18 @@ console.log('pattern checks ok');
   if (!near(b.max[2], 100 + q.base) || !near(b.max[0] * 2, 120 + 2 * q.wall) || !near(hole(b.max[2] - 0.01) * 2, 120)
     || !near(hole(q.base + 0.01) * 2, 90)) throw new Error('inside sizing is off');
   console.log('inside sizing ok');
+}
+
+// screws: defaults keep the old 4 mm holes; the test bar is one solid with all 7 holes, and holes follow the setting
+{
+  const h = screwHoles(defaults);
+  if (h.pilotR !== 1.6 || h.clearR !== 2.25 || h.headR !== 4) throw new Error('default screw holes changed');
+  for (const q of [defaults, { ...defaults, screw: 6, pilotAdjust: -0.3 }]) {
+    const bar = testPrint(wasm, q);
+    if (bar.status() !== 'NoError' || bar.decompose().length !== 1 || bar.genus() !== 7) throw new Error('test bar is broken');
+  }
+  if (testPrint(wasm, { ...defaults, pilotAdjust: 0.4 }).volume() >= testPrint(wasm, defaults).volume()) throw new Error('pilot adjust does not widen holes');
+  const disc = s => build(wasm, { ...defaults, screw: s }).core[0].volume();
+  if (disc(6) >= disc(4)) throw new Error('bigger screws should cut bigger holes');
+  console.log('screw checks ok');
 }

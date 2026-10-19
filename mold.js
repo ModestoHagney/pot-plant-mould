@@ -6,7 +6,7 @@ export const defaults = {
   height: 120, topDia: 140, bottomDia: 100, wall: 10, base: 12,
   lipHeight: 0, lipWidth: 0, drainDia: 15, moldWall: 4, wedges: 4, segments: 96,
   pattern: 'none', patternDepth: 3, patternCount: 24, patternPitch: 20, seed: 1,
-  gap: 0.2, draft: 3, bed: 256, bolts: false, sizeBy: 'outside',
+  gap: 0.2, draft: 3, bed: 256, bolts: false, sizeBy: 'outside', screw: 4, pilotAdjust: 0,
 };
 
 // Outer-face patterns: (params, top of the patterned band, smallest pot radius) -> (angle, height) -> 0..1,
@@ -231,7 +231,7 @@ export function build(wasm, p, show = { core: true, wedges: true }) {
   // drops into the core and screws into a 45°-bottomed tab on each piece, and one spoke per seam screwed into both
   // ribs of that wedge seam. Core wall is the mould wall, capped at 8 mm (thicker only wastes filament).
   const t = Math.min(p.moldWall, 8), kc = (rInTop - rInBot) / (H - p.base), rIn = z => rInBot + kc * (z - p.base) - t; // inner wall radius
-  const screwPilot = 1.6, screwR = 2.25; // ~4 mm wood screws
+  const { pilotR: screwPilot, clearR: screwR, headR } = screwHoles(p);
   const tb = Math.max(t, 8), zB = p.base + tb; // disc thickness (enough for screws to bite), wall pieces start at zB
   const cT = Math.max(5, t), cD = Math.min(12, rIn(zB) / 3), cjh = Math.min(3, cT / 2) + 2 * g; // core rib: thickness per side, depth, tongue height
   const xRib = rIn(zB) - cD, rd = p.drainDia / 2, half = Math.PI / p.wedges;
@@ -247,7 +247,7 @@ export function build(wasm, p, show = { core: true, wedges: true }) {
   const tongueC = fin.extrude(H + 2).translate([0, 0, zB]).intersect(cavityTo(H));
   const grooveC = fin.offset(c, 'Miter').extrude(H + 2).translate([0, 0, zB - 1]);
   // screw tab halfway round each piece, just under the spider's lip, with a 45° underside so it prints bottom-down
-  const lipD = 6, lipT = t, rS2 = rIn(H - lipD) - lipT / 2, zT = H - lipD - g, rTi = rIn(H - lipD) - lipT - 1, wall = rIn(zT) + t / 2;
+  const lipD = 6, lipT = t, rS2 = rIn(H - lipD) - lipT / 2, zT = H - lipD - g, rTi = Math.min(rIn(H - lipD) - lipT - 1, rS2 - screwPilot - 1.5), wall = rIn(zT) + t / 2;
   const tab = new CrossSection([[[rTi, zT], [rTi, zT - 6], [wall, zT - 6 - (wall - rTi)], [wall, zT]]]).extrude(10)
     .rotate([90, 0, 0]).translate([0, 5, 0]).intersect(cavityTo(H)).subtract(Manifold.cylinder(10, screwPilot, screwPilot, 24).translate([rS2, 0, zT - 7]));
   // foot: a ledge round the bottom of each piece's inside, standing on the disc, screwed down into it (clearance holes
@@ -264,7 +264,7 @@ export function build(wasm, p, show = { core: true, wedges: true }) {
   if (rd > 0) disc = disc.add(Manifold.cylinder(p.base, rd, rd, p.segments)); // drain pin, fills the pot's drain hole
   if (rd > screwR + 1.5) // screw from the top through disc and pin into the board, countersunk
     disc = disc.subtract(Manifold.cylinder(zB + 2, screwR, screwR, 24).translate([0, 0, -1]))
-      .subtract(Manifold.cylinder(screwR + 0.01, screwR, 2 * screwR + 0.01, 24).translate([0, 0, zB - screwR]));
+      .subtract(countersink(Manifold, screwR, headR, zB));
   for (let i = 0; i < p.wedges; i++) for (const a of footAngles) disc = disc.subtract(atSeam(Manifold.cylinder(tb - 1.5, screwPilot, screwPilot, 24).translate([rFS, 0, p.base + 1.5]), 2 * half * i + a));
   const sector = i => {
     const a0 = 2 * half * i, k = g / Math.sin(half), R = rInTop + 10, pts = [[k * Math.cos(a0 + half), k * Math.sin(a0 + half)]];
@@ -288,14 +288,15 @@ export function build(wasm, p, show = { core: true, wedges: true }) {
   const lip = rev([[rIn(H - lipD) - lipT, H - lipD], [rIn(H - lipD) - g, H - lipD], [rIn(H) - g, H], [rIn(H) - lipT, H]]) // follows the taper
     .subtract(Manifold.union(Array.from({ length: p.wedges }, (_, i) => atSeam(ribZone(g), 2 * half * i))));
   const seamScrewDepth = Math.min(16, H / 3), ribMid = g + ribT / 2;
+  // the tab screw goes down the lip: a hole nearly as wide as the lip would leave paper-thin walls, so cut a clean slot
+  const lipHole = screwR > lipT / 2 - 1 ? Math.max(screwR, lipT / 2 + 0.5) : screwR;
   let spider = plan.extrude(t).translate([0, 0, H]).add(lip);
   for (let i = 0; i < p.wedges; i++) for (const [x, y, a] of [[rS2, 0, 2 * half * i + half], [rMax + jointX, ribMid, 2 * half * i], [rMax + jointX, -ribMid, 2 * half * i]])
-    spider = spider.subtract(atSeam(Manifold.cylinder(t + lipD + 2, screwR, screwR, 24).translate([x, y, H - lipD - 1]), a));
+    spider = spider.subtract(atSeam(Manifold.cylinder(t + lipD + 2, x === rS2 ? lipHole : screwR, x === rS2 ? lipHole : screwR, 24).translate([x, y, H - lipD - 1]), a));
   const seamScrew = Manifold.union([ribMid, -ribMid].map(y => Manifold.cylinder(seamScrewDepth + 1, screwPilot, screwPilot, 24).translate([rMax + jointX, y, H - seamScrewDepth])));
 
   // screw flange round the bottom: the wedges screw down to a board (ply, melamine), which closes the bottom.
   // It reaches out as far as the seam ribs, and its top slopes down and out so a driver clears the wall.
-  // ponytail: fixed for ~4 mm wood screws; make it a setting if people use other screws
   const fT = 4, screwTilt = 15, slope = Math.tan(screwTilt * Math.PI / 180), rF = bodyO(0) + ribD;
   const fTop = r => fT + (rF - r) * slope; // flange thickness at radius r
   const flange = rev([[bodyO(0) - 1, 0], [rF, 0], [rF, fT], [bodyO(0), fTop(bodyO(0))], [bodyO(0) - 1, fTop(bodyO(0))]]);
@@ -332,4 +333,23 @@ export function build(wasm, p, show = { core: true, wedges: true }) {
   if (show.wedges) fits('Each wedge', wedges[0].rotate([0, 0, -180 / n]));
   if (warnings.length > before) warnings.push('Try more wedges');
   return { pot, core, spider, wedges, screws, footScrews: footAngles.length, rMax, warnings };
+}
+
+// screw holes from the screw's thread size: pilot (the screw bites in), clearance (it passes through), head (countersink).
+// Only the pilot is tuned, by pilotAdjust from the test print; clearance holes are forgiving.
+export const screwHoles = p => ({ pilotR: (0.8 * p.screw + p.pilotAdjust) / 2, clearR: (p.screw + 0.5) / 2, headR: p.screw });
+// 90° cone from the head down to the clearance hole, top at z
+const countersink = (Manifold, r, headR, z) => Manifold.cylinder(headR - r + 0.01, r, headR + 0.01, 24).translate([0, 0, z - (headR - r)]);
+
+// test bar: 5 pilot holes at -0.4..+0.4 mm from the setting (a notch marks the middle one, the current setting),
+// then one clearance hole and one countersunk clearance hole. Prints flat, 10 mm deep like the core disc.
+export function testPrint(wasm, p) {
+  const { Manifold } = wasm, { pilotR, clearR, headR } = screwHoles(p), T = 10, W = Math.max(20, 2 * headR + 8);
+  const pitch = Math.max(12, 2 * headR + 4), L = 7 * pitch;
+  let bar = Manifold.cube([L, W, T]);
+  const at = (m, i) => m.translate([pitch * (i + 0.5), W / 2, 0]);
+  for (let i = 0; i < 5; i++) { const r = pilotR + (i - 2) * 0.2; bar = bar.subtract(at(Manifold.cylinder(T + 2, r, r, 24).translate([0, 0, -1]), i)); }
+  bar = bar.subtract(at(Manifold.cylinder(T + 2, clearR, clearR, 24).translate([0, 0, -1]), 5));
+  bar = bar.subtract(at(Manifold.cylinder(T + 2, clearR, clearR, 24).translate([0, 0, -1]).add(countersink(Manifold, clearR, headR, T)), 6));
+  return bar.subtract(Manifold.cylinder(T + 2, 1.5, 1.5, 4).translate([pitch * 2.5, 0, -1])); // notch on the edge by the middle pilot
 }
