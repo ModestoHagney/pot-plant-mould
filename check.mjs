@@ -35,3 +35,14 @@ for (const [wedges, seed, patternDepth, patternCount] of [[2, 1, 10, 24], [3, 7,
 const vol = seed => build(wasm, { ...defaults, pattern: 'lowpoly', seed }).pot.volume();
 if (vol(5) !== vol(5) || vol(5) === vol(6)) throw new Error('low poly seed should repeat exactly and differ between seeds');
 console.log('pattern checks ok');
+
+// inside sizing: the hole comes out at the sizes asked for, and the pot grows by the wall and base
+{
+  const q = { ...defaults, sizeBy: 'inside', height: 100, topDia: 120, bottomDia: 90, draft: 0 };
+  const { pot } = build(wasm, q), b = pot.boundingBox();
+  const hole = z => Math.min(...pot.slice(z).toPolygons().map(c => Math.max(...c.map(([x, y]) => Math.hypot(x, y)))));
+  const near = (a, x) => Math.abs(a - x) < 0.3;
+  if (!near(b.max[2], 100 + q.base) || !near(b.max[0] * 2, 120 + 2 * q.wall) || !near(hole(b.max[2] - 0.01) * 2, 120)
+    || !near(hole(q.base + 0.01) * 2, 90)) throw new Error('inside sizing is off');
+  console.log('inside sizing ok');
+}

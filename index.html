@@ -91,6 +91,11 @@
   .fill input[type=range] { position: absolute; inset: 0; opacity: 0; pointer-events: none; }
   .fill:focus-within { outline: 1px solid var(--muted); outline-offset: -1px; }
   .row { padding: 2px 4px 2px 10px; }
+  .seg { display: flex; border: 1px solid var(--line); border-radius: 6px; overflow: hidden; }
+  .seg label { position: relative; padding: 2px 10px; font-size: 12px; color: var(--muted); cursor: pointer; }
+  .seg label + label { border-left: 1px solid var(--line); }
+  .seg input { position: absolute; opacity: 0; pointer-events: none; }
+  .seg label:has(input:checked) { background: var(--accent); color: var(--accent-fg); }
   .row select { border: 0; border-radius: 4px; background: var(--panel); text-align: right; padding: 2px 4px; outline: none; }
   .row:focus-within { outline: 1px solid var(--muted); outline-offset: -1px; }
   .switch { padding: 0 8px 0 10px; cursor: pointer; }
@@ -217,6 +222,8 @@ for (const [title, list] of folds) {
   const d = document.createElement('details');
   d.open = title !== 'Pattern' && title !== 'Clamping';
   d.innerHTML = `<summary>${title}<span class="state" data-for="${title}"></span></summary>`;
+  if (title === 'Pot') d.insertAdjacentHTML('beforeend', `<div class="row" title="Outside: the pot's outer size. Inside: the hole, e.g. to fit a plastic pot"><span class="name">Size by</span>
+    <span class="seg">${['outside', 'inside'].map(v => `<label><input type="radio" name="sizeBy" value="${v}"${v === defaults.sizeBy ? ' checked' : ''}>${v[0].toUpperCase() + v.slice(1)}</label>`).join('')}</span></div>`);
   if (title === 'Pattern') d.insertAdjacentHTML('beforeend', `<label class="row"><span class="name">Style</span>
     <select name="pattern">${Object.keys(patterns).map(k => `<option>${k}</option>`).join('')}</select></label>`);
   for (const [k, label, min, max, step = 1] of list) d.append(fillBar(k, label, min, max, step, defaults[k]));
@@ -225,16 +232,19 @@ for (const [title, list] of folds) {
     .map(([k, label]) => switchRow(k, label, defaults[k])).join(''));
   form.append(d);
 }
-const params = () => ({ ...defaults, ...Object.fromEntries([...form.elements].filter(e => e.name)
+const params = () => ({ ...defaults, ...Object.fromEntries([...form.elements].filter(e => e.name && (e.type !== 'radio' || e.checked))
   .map(e => [e.name, e.type === 'checkbox' ? e.checked : e.type === 'range' ? +e.value : e.value])) });
 
 // closed folds show their state; controls that can't do anything right now are greyed out
 function refreshForm() {
   const p = params(), state = {
-    Pot: `${p.height} × ${p.topDia}`, Pattern: p.pattern === 'none' ? 'Off' : p.pattern,
+    Pot: `${p.height} × ${p.topDia}${p.sizeBy === 'inside' ? ' inside' : ''}`, Pattern: p.pattern === 'none' ? 'Off' : p.pattern,
     Mould: `${p.wedges} wedges`, Clamping: p.bolts ? 'Ribs, bolts' : 'Ribs',
   };
   for (const s of form.querySelectorAll('.state')) s.textContent = state[s.dataset.for];
+  const inside = p.sizeBy === 'inside';
+  for (const [k, out, ins] of [['height', 'Height', 'Inside depth'], ['topDia', 'Top diameter', 'Inside top diameter'], ['bottomDia', 'Bottom diameter', 'Inside bottom diameter']])
+    form.elements[k].setAttribute('aria-label', form.elements[k].closest('.fill').querySelector('.name').textContent = `${inside ? ins : out} (mm)`);
   for (const k of ['patternDepth', 'patternCount', 'patternPitch']) form.elements[k].closest('.fill').classList.toggle('off', p.pattern === 'none');
   form.elements.seed.closest('.fill').classList.toggle('off', p.pattern !== 'lowpoly');
   document.getElementById('reroll').disabled = p.pattern !== 'lowpoly';
