@@ -68,5 +68,7 @@ console.log('pattern checks ok');
   if (testPrint(wasm, { ...defaults, pilotAdjust: 0.4 }).volume() >= testPrint(wasm, defaults).volume()) throw new Error('pilot adjust does not widen holes');
   const disc = s => build(wasm, { ...defaults, screw: s }).core.volume();
   if (disc(6) >= disc(4)) throw new Error('bigger screws should cut bigger holes');
+  const sink = q => build(wasm, { ...defaults, ...q }).core.volume();
+  if (sink({ headDia: 10 }) >= sink({}) || sink({ csAngle: 60 }) >= sink({})) throw new Error('countersink settings do nothing');
   console.log('screw checks ok');
 }

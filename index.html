@@ -226,8 +226,9 @@ const folds = [
   ['Clamping', [['ribDepth', 'Rib depth (mm, 0 = auto)', 0, 60], ['ribThick', 'Rib thickness (mm, 0 = auto)', 0, 20, 0.5],
     ['ribRound', 'Rib corner radius (mm)', 0, 5, 0.5], ['ribFillet', 'Rib root fillet (mm)', 0.5, 10, 0.5],
     ['flangeThick', 'Flange thickness (mm)', 2, 12, 0.5], ['screwTilt', 'Flange screw tilt (°)', 0, 30],
-    ['screwSpacing', 'Flange screws apart, max (mm)', 30, 200], ['boltSize', 'Bolt size (mm)', 3, 8], ['boltCount', 'Bolts per seam', 1, 8]]],
-  ['Screws', [['screw', 'Screw size (mm)', 2, 5, 0.5], ['pilotAdjust', 'Pilot adjust (mm)', -0.6, 0.6, 0.1]]],
+    ['screwSpacing', 'Flange screws apart, max (mm)', 30, 200], ['boltSize', 'Bolt size (mm)', 3, 8, 0.1], ['boltCount', 'Bolts per seam', 1, 8]]],
+  ['Screws', [['screw', 'Screw size (mm)', 2, 8, 0.1], ['pilotAdjust', 'Pilot adjust (mm)', -0.6, 0.6, 0.1],
+    ['headDia', 'Head diameter (mm, 0 = 2× screw)', 0, 16, 0.1], ['csAngle', 'Countersink angle (°)', 60, 120]]],
 ];
 const form = document.getElementById('f');
 for (const [title, list] of folds) {
