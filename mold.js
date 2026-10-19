@@ -6,8 +6,29 @@ export const defaults = {
   height: 120, topDia: 140, bottomDia: 100, wall: 10, base: 12,
   lipHeight: 0, lipWidth: 0, drainDia: 15, moldWall: 4, wedges: 4, segments: 96,
   pattern: 'none', patternDepth: 3, patternCount: 24, patternPitch: 20, seed: 1,
-  gap: 0.2, draft: 5, bed: 256, bolts: false, sizeBy: 'outside', screw: 4, pilotAdjust: 0,
+  gap: 0.2, draft: 5, bed: 256, bolts: false, sizeBy: 'outside', screw: 4, pilotAdjust: 0, patternFade: 4,
+  // pot edges: size cut back along each face (0 = sharp)
+  edgeStyle: 'fillet', edgeTopOut: 0, edgeTopIn: 0, edgeBotOut: 0, edgeBotIn: 0,
+  coreWall: 4, coreFloor: 6, spiderThick: 4, spiderRing: 4, spiderLip: 10, spiderLipThick: 3, spiderRound: 1, spokeFillet: 3,
+  spiderScrewDepth: 16,
+  // rib depth and thickness 0 = sized to the pot
+  ribDepth: 0, ribThick: 0, ribRound: 2, ribFillet: 3, flangeThick: 4, screwTilt: 15, screwSpacing: 80, boltSize: 5, boltCount: 3,
 };
+
+// The corner c of a profile, cut back s along each of its edges (unit directions u1, u2): a straight chamfer or a
+// tangent arc, as points from the u1 side to the u2 side.
+const corner = (c, u1, u2, s, fillet) => {
+  if (s <= 0) return [c];
+  const at = (u, d) => [c[0] + u[0] * d, c[1] + u[1] * d], p1 = at(u1, s), p2 = at(u2, s);
+  if (!fillet) return [p1, p2];
+  const th = Math.acos(u1[0] * u2[0] + u1[1] * u2[1]), b = [u1[0] + u2[0], u1[1] + u2[1]], bl = Math.hypot(...b);
+  const o = at([b[0] / bl, b[1] / bl], s / Math.cos(th / 2)), r = Math.hypot(p1[0] - o[0], p1[1] - o[1]);
+  const a1 = Math.atan2(p1[1] - o[1], p1[0] - o[0]);
+  let da = Math.atan2(p2[1] - o[1], p2[0] - o[0]) - a1;
+  da -= 2 * Math.PI * Math.round(da / (2 * Math.PI)); // the short way round
+  return Array.from({ length: 13 }, (_, i) => [o[0] + r * Math.cos(a1 + da * i / 12), o[1] + r * Math.sin(a1 + da * i / 12)]);
+};
+const unit = (a, b) => { const l = Math.hypot(b[0] - a[0], b[1] - a[1]); return [(b[0] - a[0]) / l, (b[1] - a[1]) / l]; };
 
 // Outer-face patterns: (params, top of the patterned band, smallest pot radius) -> (angle, height) -> 0..1,
 // scaled by patternDepth and pushed outward only, so the wall never gets thinner than `wall`.
@@ -130,19 +151,19 @@ export function build(wasm, p, show = { core: true, wedges: true }) {
 
   if (!patterns[p.pattern]) throw new Error(`Unknown pattern ${p.pattern}`);
   let outer;
-  const warnings = [];
-  if (p.pattern === 'none' || !p.patternDepth) {
+  const warnings = [], plain = p.pattern === 'none' || !p.patternDepth;
+  const segs = plain ? p.segments : Math.min(720, Math.max(p.segments, p.patternCount * 12));
+  if (plain) {
     outer = rev([[0, 0], [rb, 0], [rAt(lipZ), lipZ], [rLip, lipZ], [rLip, H], [0, H]]);
   } else {
     const fn = patterns[p.pattern](p, lipZ, Math.min(rb, rAt(lipZ)));
     // with a lip, the pattern fades out over the last few mm so it meets the lip's underside; without one it runs
     // right to the rim and the base
-    const lip = p.lipHeight > 0, fade = Math.min(4, lipZ / 4), ramp = t => Math.min(1, Math.max(0, t / fade));
+    const lip = p.lipHeight > 0, fade = Math.min(p.patternFade, lipZ / 4), ramp = t => Math.min(1, Math.max(0, t / fade));
     const dAt = (a, z) => p.patternDepth * fn(a, z) * (lip ? ramp(lipZ - z) : 1);
     // dense side profile + enough segments to resolve the pattern, then push side vertices outward
     const dz = Math.min(1, p.patternPitch / 12), side = [];
     for (let z = 0; z < lipZ; z += dz) side.push([rAt(z), z]);
-    const segs = Math.min(720, Math.max(p.segments, p.patternCount * 12));
     const top = lip ? [[rAt(lipZ), lipZ], [rLip, lipZ], [rLip, H], [0, H]] : [[rt, H], [0, H]];
     outer = new CrossSection([[[0, 0], ...side, ...top]]).revolve(segs).warp(v => {
       const r = Math.hypot(v[0], v[1]), z = v[2];
@@ -165,9 +186,24 @@ export function build(wasm, p, show = { core: true, wedges: true }) {
   if (rInBot <= p.drainDia / 2) throw new Error('Draft angle leaves no room at the bottom of the core');
   if (p.holeBot && rInBot < p.holeBot - 0.05)
     warnings.push(`Core draft narrows the bottom of the hole to ${(2 * rInBot).toFixed(1)} mm. Lower the draft or widen the top`);
-  const cavityTo = top => rev([[0, p.base], [rInBot, p.base], [rInTop, top], [0, top]]);
+  // pot edges: the outer ones are cut off the outer solid (out past any pattern, which gets trimmed there), the inner
+  // ones are drawn into the cavity. Each is capped to leave the face it sits on.
+  const fil = p.edgeStyle !== 'chamfer', lip = p.lipHeight > 0, cTop = [lip ? rLip : rt, H], X = Math.max(rb, cTop[0]) + p.patternDepth + 2;
+  const rimW = cTop[0] - rInTop, bot = [rInBot, p.base], top = [rInTop, H];
+  const eTO = Math.min(p.edgeTopOut, rimW * 0.49, lip ? p.lipHeight - 0.1 : lipZ / 2), eBO = Math.min(p.edgeBotOut, rb - p.drainDia / 2 - 0.5, lipZ / 2);
+  const eTI = Math.min(p.edgeTopIn, rimW * 0.49, (H - p.base) / 2), eBI = Math.min(p.edgeBotIn, rInBot - p.drainDia / 2 - 1, (H - p.base) / 2);
+  const cutter = pts => new CrossSection([pts]).revolve(segs);
+  if (eBO > 0) {
+    const arc = corner([rb, 0], [-1, 0], unit([rb, 0], [rAt(lipZ), lipZ]), eBO, fil);
+    outer = outer.subtract(cutter([[arc[0][0], -1], [X, -1], [X, arc.at(-1)[1]], ...arc.reverse()]));
+  }
+  if (eTO > 0) {
+    const arc = corner(cTop, lip ? [0, -1] : unit(cTop, [rb, 0]), [-1, 0], eTO, fil);
+    outer = outer.subtract(cutter([[X, arc[0][1]], [X, H + 1], [arc.at(-1)[0], H + 1], ...arc.reverse()]));
+  }
+  const cavity = rev([[0, p.base], ...corner(bot, [-1, 0], unit(bot, top), eBI, fil), ...corner(top, unit(top, bot), [1, 0], eTI, fil), [0, H]]);
   // drain hole (a zero-radius cylinder is invalid and would empty every part it touches)
-  let pot = outer.subtract(cavityTo(H));
+  let pot = outer.subtract(cavity);
   if (p.drainDia > 0) pot = pot.subtract(Manifold.cylinder(p.base + 2, p.drainDia / 2, p.drainDia / 2, p.segments).translate([0, 0, -1]));
 
   // outer wedges: constant wall following the pot's taper (pattern depth included), stepping out for the lip
@@ -195,10 +231,12 @@ export function build(wasm, p, show = { core: true, wedges: true }) {
   const g = p.gap / 2, c = p.gap;
 
   // clamp ribs sized to the pot (small pots, small clamps); room for M5 bolts 2 hole widths in from the edge
-  const ribD = Math.min(30, Math.max(p.bolts ? 26 : 14, rMax * 0.2)), ribT = Math.max(6, ribD / 2.5);
-  const round = Math.min(2, ribT / 3), fillet = Math.min(4, ribT / 2);
-  const boltX = ribD - 11, jointX = p.bolts ? (boltX - 2.75) / 2 : ribD * 0.4;
-  const jw = Math.min(8, p.bolts ? (boltX - 2.75 - 2) : ribD * 0.5), jh = jw * 0.35 + 2 * g; // tongue width, height
+  const ribD = p.ribDepth || Math.min(30, Math.max(p.bolts ? 5 * p.boltSize + 1 : 14, rMax * 0.2)), ribT = p.ribThick || Math.max(6, ribD / 2.5);
+  const round = Math.min(p.ribRound, ribT / 2 - 0.1, ribD / 2 - 0.1), fillet = p.ribFillet;
+  const boltR = (p.boltSize + 0.5) / 2, boltX = ribD - 2 * p.boltSize - 1, jointX = p.bolts ? (boltX - boltR) / 2 : ribD * 0.4;
+  const jw = Math.min(8, p.bolts ? (boltX - boltR - 2) : ribD * 0.5), jh = jw * 0.35 + 2 * g; // tongue width, height
+  if (jw < 2) throw new Error('Ribs too shallow for these bolts: raise rib depth or use smaller bolts');
+  const seamScrewDepth = Math.min(p.spiderScrewDepth, H / 2);
   // rib section for the side y >= g: rounded outer corners, plus a root fillet into the shell
   // The shell's outer surface curves away from the seam plane: in this frame it is a circle of radius rS centred
   // at (-rS, 0). The root fillet is tangent to both the rib's side (y = y0) and that circle, so it blends in.
@@ -217,20 +255,21 @@ export function build(wasm, p, show = { core: true, wedges: true }) {
   const groove = trap(-g + 1, g - jh - c, jw - 2 * (2 * g - 1) + 2 * c, jw - 2 * jh); // overshoots the face by 1 so the cut is clean
   const ribA = follow(ribSection), ribB = ribA.mirror([0, 1, 0]);
   // the joint stops short of the top, leaving room for the screws that hold the spider's spoke down (see core)
-  const below = Manifold.cube([1e4, 1e4, H - Math.min(16, H / 3) - 1]).translate([-5e3, -5e3, -1]);
+  const below = Manifold.cube([1e4, 1e4, H - seamScrewDepth - 1]).translate([-5e3, -5e3, -1]);
   const tongueM = follow(tongue).intersect(below), grooveM = follow(groove).intersect(below);
-  const bolt = (y0, y1) => Manifold.union([H / 6, H / 2, 5 * H / 6].map(z =>
-    Manifold.cylinder(y1 - y0, 2.75, 2.75, 24).rotate([-90, 0, 0]).translate([rOut(z) + boltX, y0, z])));
+  const bolt = (y0, y1) => Manifold.union(Array.from({ length: p.boltCount }, (_, i) => (i + 0.5) * H / p.boltCount).map(z =>
+    Manifold.cylinder(y1 - y0, boltR, boltR, 24).rotate([-90, 0, 0]).translate([rOut(z) + boltX, y0, z])));
   const bolts = bolt(-g - ribT - 1, g + ribT + 1);
 
   // core: one tapered shell (the core always has `draft` taper so it pulls straight up), closed floor, open top,
   // printed floor-down. With a drain, a separate pin fills the pot's drain hole and one countersunk screw goes from
   // inside the core down through the floor and pin into the board. A separate spider sits across the core's rim and
-  // screws into both ribs of every wedge seam, so the core can't float. Core wall is the mould wall, capped at 8 mm.
-  const t = Math.min(p.moldWall, 8), kc = (rInTop - rInBot) / (H - p.base), rIn = z => rInBot + kc * (z - p.base) - t; // inner wall radius
+  // screws into both ribs of every wedge seam, so the core can't float; a lip under the spider drops inside the core's
+  // rim so the core can't wobble.
+  const t = p.coreWall, kc = (rInTop - rInBot) / (H - p.base), rIn = z => rInBot + kc * (z - p.base) - t; // inner wall radius
   const { pilotR: screwPilot, clearR: screwR, headR } = screwHoles(p);
-  const tb = Math.max(t, 6), zB = p.base + tb, rd = p.drainDia / 2; // floor thickness
-  let core = cavityTo(H).subtract(rev([[0, zB], [rIn(zB), zB], [rIn(H + 1), H + 1], [0, H + 1]]));
+  const tb = p.coreFloor, zB = p.base + tb, rd = p.drainDia / 2; // floor thickness
+  let core = cavity.subtract(rev([[0, zB], [rIn(zB), zB], [rIn(H + 1), H + 1], [0, H + 1]]));
   let pin = null;
   if (rd > 0) {
     pin = Manifold.cylinder(p.base, rd, rd, p.segments); // fills the pot's drain hole, flush with the board
@@ -241,24 +280,25 @@ export function build(wasm, p, show = { core: true, wedges: true }) {
     }
   }
   // spider (plan view): a ring over the core's rim + rounded, filleted spokes out over each wedge seam's rib pair
-  const spokeY = g + ribT, rEnd = rMax + ribD, rr = Math.min(2, t / 4), sf = Math.min(4, ribT / 2);
-  const plan = CrossSection.circle(rInTop, p.segments).subtract(CrossSection.circle(rInTop - t - 4, p.segments))
+  const ts = p.spiderThick, spokeY = g + ribT, rEnd = rMax + ribD, rr = Math.min(p.spiderRound, spokeY - 0.5), sf = p.spokeFillet;
+  const plan = CrossSection.circle(rInTop, p.segments).subtract(CrossSection.circle(rInTop - t - p.spiderRing, p.segments))
     .add(CrossSection.union(Array.from({ length: p.wedges }, (_, i) =>
       CrossSection.square([rEnd - rInTop + t, 2 * spokeY]).translate([rInTop - t, -spokeY]).rotate(i * 360 / p.wedges))))
     .offset(-rr, 'Round').offset(rr, 'Round').offset(sf, 'Round').offset(-sf, 'Round');
-  const seamScrewDepth = Math.min(16, H / 3), ribMid = g + ribT / 2;
-  let spider = plan.extrude(t).translate([0, 0, H]);
+  const ribMid = g + ribT / 2, lipH = Math.min(p.spiderLip, H - zB - 2), lt = p.spiderLipThick;
+  let spider = plan.extrude(ts).translate([0, 0, H]);
+  if (lipH > 0) spider = spider.add(rev([[rIn(H - lipH) - g - lt, H - lipH], [rIn(H - lipH) - g, H - lipH], [rIn(H) - g, H + ts / 2], [rIn(H) - g - lt, H + ts / 2]]));
   for (let i = 0; i < p.wedges; i++) for (const y of [ribMid, -ribMid])
-    spider = spider.subtract(atSeam(Manifold.cylinder(t + 2, screwR, screwR, 24).translate([rMax + jointX, y, H - 1]), i * 2 * Math.PI / p.wedges));
+    spider = spider.subtract(atSeam(Manifold.cylinder(ts + 2, screwR, screwR, 24).translate([rMax + jointX, y, H - 1]), i * 2 * Math.PI / p.wedges));
   const seamScrew = Manifold.union([ribMid, -ribMid].map(y => Manifold.cylinder(seamScrewDepth + 1, screwPilot, screwPilot, 24).translate([rMax + jointX, y, H - seamScrewDepth])));
 
   // screw flange round the bottom: the wedges screw down to a board (ply, melamine), which closes the bottom.
   // It reaches out as far as the seam ribs, and its top slopes down and out so a driver clears the wall.
-  const fT = 4, screwTilt = 15, slope = Math.tan(screwTilt * Math.PI / 180), rF = bodyO(0) + ribD;
+  const fT = p.flangeThick, screwTilt = p.screwTilt, slope = Math.tan(screwTilt * Math.PI / 180), rF = bodyO(0) + ribD;
   const fTop = r => fT + (rF - r) * slope; // flange thickness at radius r
   const flange = rev([[bodyO(0) - 1, 0], [rF, 0], [rF, fT], [bodyO(0), fTop(bodyO(0))], [bodyO(0) - 1, fTop(bodyO(0))]]);
   const shell = new CrossSection([[[0, 0], ...prof, [0, H]]]).revolve(p.segments).add(flange).subtract(outer);
-  const rScrew = bodyO(0) + ribD / 2, screws = Math.ceil(rScrew * 2 * Math.PI / p.wedges / 80); // per wedge, ≤ 80 mm apart
+  const rScrew = bodyO(0) + ribD / 2, screws = Math.ceil(rScrew * 2 * Math.PI / p.wedges / p.screwSpacing); // per wedge, at most screwSpacing apart
   const n = p.wedges, R = (rMax + ribD) * 2, wedges = [];
   for (let i = 0; i < n; i++) {
     const a0 = (i / n) * 2 * Math.PI, a1 = ((i + 1) / n) * 2 * Math.PI, half = (a1 - a0) / 2;

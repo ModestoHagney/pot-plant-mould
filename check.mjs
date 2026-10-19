@@ -2,7 +2,7 @@ import Module from 'manifold-3d';
 import { build, defaults, patterns, screwHoles, testPrint, trackMemory } from './mold.js';
 const wasm = await Module(); wasm.setup();
 const free = trackMemory(wasm); // freed before each build, as the app does
-for (const [n, pattern, extra] of [[2, 'none', { bolts: true }], [4, 'none', { drainDia: 0 }], [3, 'ribs', { lipWidth: 0 }], [6, 'diamonds', { bolts: true, moldWall: 15 }], [4, 'lowpoly', { lipHeight: 0, lipWidth: 0 }], [4, 'none', { screw: 2, pilotAdjust: -0.6 }], [4, 'none', { screw: 5, pilotAdjust: 0.6, moldWall: 8 }], ...Object.keys(patterns).map(k => [4, k])]) {
+for (const [n, pattern, extra] of [[2, 'none', { bolts: true }], [4, 'none', { drainDia: 0 }], [3, 'ribs', { lipWidth: 0 }], [6, 'diamonds', { bolts: true, moldWall: 15 }], [4, 'lowpoly', { lipHeight: 0, lipWidth: 0 }], [4, 'none', { screw: 2, pilotAdjust: -0.6 }], [4, 'none', { screw: 5, pilotAdjust: 0.6, moldWall: 8 }], [4, 'none', { edgeStyle: 'chamfer', edgeTopOut: 3, edgeTopIn: 2, edgeBotOut: 5, edgeBotIn: 4, spiderLip: 0, lipHeight: 10, lipWidth: 5 }], [3, 'ribs', { edgeTopOut: 3, edgeBotOut: 3, edgeBotIn: 4, bolts: true, boltSize: 4, boltCount: 4, ribDepth: 25 }], ...Object.keys(patterns).map(k => [4, k])]) {
   free();
   const { pot, core, pin, spider, wedges, screws } = build(wasm, { ...defaults, wedges: n, pattern, ...extra });
   if (pot.status() !== 'NoError' || pot.genus() !== (extra?.drainDia === 0 ? 0 : 1)) throw new Error(`bad pot for ${pattern}`);
@@ -27,6 +27,14 @@ const big = build(wasm, { ...defaults, bed: 100, bolts: true });
 if (!big.warnings.some(w => w.startsWith('Spider'))) throw new Error('bed check missed an oversized spider');
 if (build(wasm, defaults).warnings.length) throw new Error('default pot should fit a 256 mm bed');
 console.log('bed check ok');
+
+// spider lip and edges: the lip adds to the spider, edges change the pot
+{
+  const spider = q => build(wasm, { ...defaults, ...q }).spider.volume(), pot = q => build(wasm, { ...defaults, ...q }).pot.volume();
+  if (spider({ spiderLip: 20 }) <= spider({ spiderLip: 0 })) throw new Error('spider lip missing');
+  if (pot({ edgeBotOut: 5 }) >= pot({}) || pot({ edgeBotIn: 5 }) <= pot({})) throw new Error('edges not applied');
+  console.log('lip and edge checks ok');
+}
 
 // patterns: steep ribs must warn; low poly flattens itself until every wedge pulls off, for any seed
 const locks = q => build(wasm, { ...defaults, ...q }).warnings.some(w => w.includes('lock'));
