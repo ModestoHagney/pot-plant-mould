@@ -212,25 +212,39 @@ const folds = [
   ['Pot', [['height', 'Height (mm)', 40, 400], ['topDia', 'Top diameter (mm)', 40, 400], ['bottomDia', 'Bottom diameter (mm)', 40, 400],
     ['wall', 'Wall (mm)', 4, 40], ['base', 'Base (mm)', 4, 40], ['lipHeight', 'Lip height (mm)', 0, 60],
     ['lipWidth', 'Lip width (mm)', 0, 30], ['drainDia', 'Drain hole (mm)', 0, 40]]],
-  ['Pattern', [['patternDepth', 'Depth (mm)', 0, 10], ['patternCount', 'Count around', 4, 60], ['patternPitch', 'Vertical pitch (mm)', 5, 60], ['seed', 'Seed', 1, 999]]],
+  ['Edges', [['edgeTopOut', 'Top outside (mm)', 0, 10, 0.5], ['edgeTopIn', 'Top inside (mm)', 0, 10, 0.5],
+    ['edgeBotOut', 'Bottom outside (mm)', 0, 15, 0.5], ['edgeBotIn', 'Bottom inside (mm)', 0, 15, 0.5]]],
+  ['Pattern', [['patternDepth', 'Depth (mm)', 0, 10], ['patternCount', 'Count around', 4, 60], ['patternPitch', 'Vertical pitch (mm)', 5, 60], ['seed', 'Seed', 1, 999],
+    ['patternFade', 'Fade under lip (mm)', 1, 20]]],
   ['Mould', [['wedges', 'Outer wedges', 2, 12], ['moldWall', 'Mould wall (mm)', 2, 20], ['gap', 'Gap between parts (mm)', 0, 1, 0.05],
-    ['draft', 'Core draft (°)', 0, 5, 0.5], ['bed', 'Printer bed (mm)', 100, 500]]],
-  ['Clamping', []],
+    ['draft', 'Core draft (°)', 0, 10, 0.5], ['bed', 'Printer bed (mm)', 100, 500]]],
+  ['Core', [['coreWall', 'Core wall (mm)', 2, 12, 0.5], ['coreFloor', 'Core floor (mm)', 3, 20, 0.5],
+    ['spiderThick', 'Spider thickness (mm)', 2, 12, 0.5], ['spiderRing', 'Spider ring width (mm)', 2, 20, 0.5],
+    ['spiderLip', 'Spider lip height (mm)', 0, 60], ['spiderLipThick', 'Spider lip thickness (mm)', 1, 8, 0.5],
+    ['spiderRound', 'Spider corner radius (mm)', 0, 5, 0.5], ['spokeFillet', 'Spoke fillet (mm)', 0, 10, 0.5],
+    ['spiderScrewDepth', 'Spider screw depth (mm)', 6, 40]]],
+  ['Clamping', [['ribDepth', 'Rib depth (mm, 0 = auto)', 0, 60], ['ribThick', 'Rib thickness (mm, 0 = auto)', 0, 20, 0.5],
+    ['ribRound', 'Rib corner radius (mm)', 0, 5, 0.5], ['ribFillet', 'Rib root fillet (mm)', 0.5, 10, 0.5],
+    ['flangeThick', 'Flange thickness (mm)', 2, 12, 0.5], ['screwTilt', 'Flange screw tilt (°)', 0, 30],
+    ['screwSpacing', 'Flange screws apart, max (mm)', 30, 200], ['boltSize', 'Bolt size (mm)', 3, 8], ['boltCount', 'Bolts per seam', 1, 8]]],
   ['Screws', [['screw', 'Screw size (mm)', 2, 5, 0.5], ['pilotAdjust', 'Pilot adjust (mm)', -0.6, 0.6, 0.1]]],
 ];
 const form = document.getElementById('f');
 for (const [title, list] of folds) {
   const d = document.createElement('details');
-  d.open = !['Pattern', 'Clamping', 'Screws'].includes(title);
+  d.open = !['Edges', 'Pattern', 'Core', 'Clamping', 'Screws'].includes(title);
   d.innerHTML = `<summary>${title}<span class="state" data-for="${title}"></span></summary>`;
   if (title === 'Pot') d.insertAdjacentHTML('beforeend', `<div class="row" title="Outside: the pot's outer size. Inside: the hole, e.g. to fit a plastic pot"><span class="name">Size by</span>
     <span class="seg">${['outside', 'inside'].map(v => `<label><input type="radio" name="sizeBy" value="${v}"${v === defaults.sizeBy ? ' checked' : ''}>${v[0].toUpperCase() + v.slice(1)}</label>`).join('')}</span></div>`);
+  if (title === 'Edges') d.insertAdjacentHTML('beforeend', `<div class="row"><span class="name">Style</span>
+    <span class="seg">${['fillet', 'chamfer'].map(v => `<label><input type="radio" name="edgeStyle" value="${v}"${v === defaults.edgeStyle ? ' checked' : ''}>${v[0].toUpperCase() + v.slice(1)}</label>`).join('')}</span></div>`);
   if (title === 'Pattern') d.insertAdjacentHTML('beforeend', `<label class="row"><span class="name">Style</span>
     <select name="pattern">${Object.keys(patterns).map(k => `<option>${k}</option>`).join('')}</select></label>`);
-  for (const [k, label, min, max, step = 1] of list) d.append(fillBar(k, label, min, max, step, defaults[k]));
+  for (const [k, label, min, max, step = 1] of list) {
+    if (k === 'boltSize') d.insertAdjacentHTML('beforeend', switchRow('bolts', 'Bolt holes', defaults.bolts));
+    d.append(fillBar(k, label, min, max, step, defaults[k]));
+  }
   if (title === 'Pattern') d.insertAdjacentHTML('beforeend', '<div class="btns"><button type="button" class="btn" id="reroll" title="Pick a new random seed">Reroll</button></div>');
-  if (title === 'Clamping') d.insertAdjacentHTML('beforeend', [['bolts', 'Bolt holes (M5)']]
-    .map(([k, label]) => switchRow(k, label, defaults[k])).join(''));
   if (title === 'Screws') d.insertAdjacentHTML('beforeend', '<div class="btns"><button type="button" class="btn" id="testprint" title="Download a small bar of test holes: 5 pilots from -0.4 to +0.4 mm (notch = current setting), a clearance hole and a countersink">Test print</button></div>');
   form.append(d);
 }
@@ -241,7 +255,8 @@ const params = () => ({ ...defaults, ...Object.fromEntries([...form.elements].fi
 function refreshForm() {
   const p = params(), state = {
     Pot: `${p.height} × ${p.topDia}${p.sizeBy === 'inside' ? ' inside' : ''}`, Pattern: p.pattern === 'none' ? 'Off' : p.pattern,
-    Mould: `${p.wedges} wedges`, Clamping: p.bolts ? 'Ribs, bolts' : 'Ribs',
+    Edges: [p.edgeTopOut, p.edgeTopIn, p.edgeBotOut, p.edgeBotIn].some(Boolean) ? p.edgeStyle[0].toUpperCase() + p.edgeStyle.slice(1) : 'Sharp',
+    Mould: `${p.wedges} wedges`, Core: p.spiderLip ? `Lip ${p.spiderLip} mm` : 'No lip', Clamping: p.bolts ? 'Ribs, bolts' : 'Ribs',
     Screws: `${p.screw} mm${p.pilotAdjust ? `, pilot ${p.pilotAdjust > 0 ? '+' : ''}${p.pilotAdjust}` : ''}`,
   };
   for (const s of form.querySelectorAll('.state')) s.textContent = state[s.dataset.for];
@@ -250,6 +265,9 @@ function refreshForm() {
     form.elements[k].setAttribute('aria-label', form.elements[k].closest('.fill').querySelector('.name').textContent = `${inside ? ins : out} (mm)`);
   for (const k of ['patternDepth', 'patternCount', 'patternPitch']) form.elements[k].closest('.fill').classList.toggle('off', p.pattern === 'none');
   form.elements.seed.closest('.fill').classList.toggle('off', p.pattern !== 'lowpoly');
+  form.elements.patternFade.closest('.fill').classList.toggle('off', p.pattern === 'none' || !p.lipHeight);
+  form.elements.spiderLipThick.closest('.fill').classList.toggle('off', !p.spiderLip);
+  for (const k of ['boltSize', 'boltCount']) form.elements[k].closest('.fill').classList.toggle('off', !p.bolts);
   document.getElementById('reroll').disabled = p.pattern !== 'lowpoly';
 }
 // a pattern runs right up to the rim, so picking one turns the lip off (it can be turned back up)
