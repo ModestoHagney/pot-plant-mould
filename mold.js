@@ -40,6 +40,7 @@ export const patterns = {
   waves: p => (a, z) => (1 + Math.cos(p.patternCount * a + 2 * Math.sin(2 * Math.PI * z / p.patternPitch))) / 2,
   diamonds: p => (a, z) => 1 - Math.abs(fract(p.patternCount * a / (2 * Math.PI)) - 0.5) - Math.abs(fract(z / p.patternPitch) - 0.5),
   lowpoly: lowPoly,
+  hex,
 };
 
 // seeded random numbers (mulberry32): the same seed always gives the same pot, so preview and export match
@@ -57,6 +58,28 @@ const pullsOff = (a, k, n, m) => {
   const w = 2 * Math.PI / n, d = a - (Math.floor(a / w) + 0.5) * w, c = Math.cos(d);
   return c + k * Math.sin(d) >= Math.min(m, c / 2);
 };
+
+// Hexagons: raised flat-topped tiles with V grooves between them, in columns that alternate half a tile up and down.
+// Every wedge seam runs down the middle of a column, through the tiles' flat tops, so no groove sits on a seam.
+// Tiles are sized from the column width at the smallest radius and stay regular, stretched slightly so whole rows fit.
+function hex(p, lipZ, r0) {
+  let nc = Math.max(1, Math.round(p.patternCount / p.wedges)) * p.wedges;
+  if (nc % 2) nc += p.wedges; // an even count, so the alternating columns meet up all the way round
+  const s3 = Math.sqrt(3), side = 2 * Math.PI * r0 / nc / 1.5, nr = Math.max(1, Math.round(lipZ / (side * s3)));
+  // groove width (share of the tile's half-width): half by default, wider until the slanted sides are gentle enough
+  // for a wedge to pull off them right by its seam (pullsOff's limit, with a margin), up to a full pyramid
+  const h = Math.PI / p.wedges, c = Math.cos(h), kMax = 0.9 * (c - Math.min(Math.sin(p.draft * Math.PI / 180), c / 2)) / Math.sin(h);
+  const g = Math.min(1, Math.max(0.5, p.patternDepth / (kMax * side)));
+  return (a, z) => {
+    const x = fract(a / (2 * Math.PI)) * nc, y = z * nr / lipZ; // in columns and rows
+    let d = Infinity;
+    for (const i of [Math.floor(x), Math.floor(x) + 1]) {
+      const o = i & 1 ? 0.5 : 0, dx = (x - i) * 1.5, dy = (y - o - Math.round(y - o)) * s3; // to the centre, in hex sides
+      d = Math.min(d, Math.max(Math.abs(dy), Math.abs(dx * s3 + dy) / 2, Math.abs(dx * s3 - dy) / 2) * 2 / s3);
+    }
+    return Math.min(1, (1 - d) / g);
+  };
+}
 
 // Low poly: a jittered grid of points over the side (angle × height), each at a random height, split into
 // triangles with random diagonals. A column of points sits on every wedge seam so no facet spans two wedges,

@@ -40,6 +40,7 @@ console.log('bed check ok');
 const locks = q => build(wasm, { ...defaults, ...q }).warnings.some(w => w.includes('lock'));
 if (!locks({ pattern: 'ribs', patternDepth: 10, patternCount: 60 })) throw new Error('missed steep ribs locking the mould');
 if (locks({ pattern: 'ribs' })) throw new Error('default ribs should demould');
+for (const wedges of [3, 4, 6]) if (locks({ pattern: 'hex', wedges })) throw new Error(`default hexes should demould with ${wedges} wedges`);
 for (const [wedges, seed, patternDepth, patternCount] of [[2, 1, 10, 24], [3, 7, 10, 60], [4, 42, 6, 12], [8, 99, 10, 60]])
   if (locks({ pattern: 'lowpoly', wedges, seed, patternDepth, patternCount })) throw new Error(`low poly locks: ${wedges} wedges, seed ${seed}`);
 const vol = seed => build(wasm, { ...defaults, pattern: 'lowpoly', seed }).pot.volume();
